@@ -379,14 +379,14 @@ ErrCode loadHeatmaps(void*)noexcept{
     return SUCCESS;
 }
 
-static int searchRadius = 2;
+static int searchRadius = 1;
 ErrCode incSearchRadius(void*)noexcept{
     searchRadius++;
     return SUCCESS;
 }
 ErrCode decSearchRadius(void*)noexcept{
     searchRadius--;
-    if(searchRadius < 0) searchRadius = 0;
+    if(searchRadius < 1) searchRadius = 1;
     return SUCCESS;
 }
 
@@ -426,33 +426,33 @@ void getDistanceMap(Image* heatmapsInterpolated, BYTE idx, DistanceMap& map){
 void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, BYTE heatmapIndex){
     DistanceMap map;
     createDistanceMap(map);
-    float* weightedDistances = new float[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY*HEATMAPCOUNT]{0};
+    float* weightedDistances = new float[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY]{0};
+    float maxDiff = 0;
     if(differenceMode){
         for(BYTE i=0; i < HEATMAPCOUNT; ++i) getDistanceMap(heatmapsInterpolated, i, map);
-        float maxDiff = 0;
         for(BYTE i=0; i < HEATMAPCOUNT; ++i){
             float quality;
             weightingQuality ? quality = getHeatmapQuality(i) : quality = 1;
             for(DWORD j=0; j < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++j){
-                DWORD offset = INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY*i;
-                weightedDistances[j+offset] += map.distances[i][j]*quality;
-                if(weightedDistances[j+offset] > maxDiff) maxDiff = weightedDistances[j+offset];
+                weightedDistances[j] += map.distances[i][j]*quality;
+                if(weightedDistances[j] > maxDiff) maxDiff = weightedDistances[j];
             }
-        }
-        for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
-            float val = weightedDistances[i]*255/maxDiff;
-            distanceImage.data[i] = RGBA(255-val, (255-val)/2, 0);
         }
     }else{
         getDistanceMap(heatmapsInterpolated, heatmapIndex, map);
-        BYTE maxDiff = 0;
+        float quality;
+        weightingQuality ? quality = getHeatmapQuality(showHeatmapIdx) : quality = 1;
         for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
-            if(map.distances[heatmapIndex][i] > maxDiff) maxDiff = map.distances[heatmapIndex][i];
+            weightedDistances[i] = map.distances[heatmapIndex][i]*quality;
+            if(weightedDistances[i] > maxDiff) maxDiff = weightedDistances[i];
         }
-        for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
-            float val = map.distances[heatmapIndex][i]*255/maxDiff;
-            distanceImage.data[i] = RGBA(255-val, (255-val)/2, 0);
-        }
+    }
+    for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
+        if(maxDiff == 0) break;
+        float val = weightedDistances[i]*255/maxDiff;
+        val *= searchRadius;
+        val = clamp(val, 0, 255);
+        distanceImage.data[i] = RGBA(255-val, (255-val)/2, 0);
     }
     delete[] weightedDistances;
     destroyDistanceMap(map);
