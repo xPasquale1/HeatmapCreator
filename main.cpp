@@ -17,6 +17,8 @@
     Lineare Interpolation des Triangulationsalgorithmus zu einer logarithmischen umändern
 
     Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
+
+    Eine Datenstrukur, um aud fie Datenpunkte per x und y Wert zuzugreifen
 */
 
 Window* window = nullptr;
@@ -88,43 +90,41 @@ void processNetworkPackets()noexcept{
     while(1){
         if(!running) break;
         int length = receiveUDPServer(server, buffer, sizeof(buffer));
-        if(length == -1){
-            ErrCheck(GENERIC_ERROR, "Packet empfangen");
-            continue;
-        }
-        switch((BYTE)buffer[0]){
-            case 2:{    //Signalstärke der Router
-                for(int i=1; i < length; ++i){
-                    if(i > HEATMAPCOUNT) break;
-                    buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom negativen ins positive um
-                    if(buffer[i] == 0){
-                        buffer[i] = MAXDB;
-                        ErrCheck(GENERIC_ERROR, std::string("Heatmapdaten von Netzwerk " + std::to_string(i) + " wurden nicht aufgezeichnet!").c_str());
-                    }
-                    switch(mode){
-                        case HEATMAPMODE: break;
-                        case SEARCHMODE:{
-                            BYTE color = rssiToColorComponent(buffer[i]);
-                            searchColor[i-1] = RGBA(color, 255-color, 1);
-                            break;
+        if(length != SOCKET_ERROR){     //TODO Problem ist der Timeout wird auch als SOCKET_ERROR ausgegeben...
+            switch((BYTE)buffer[0]){
+                case 2:{    //Signalstärke der Router
+                    for(int i=1; i < length; ++i){
+                        if(i > HEATMAPCOUNT) break;
+                        buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom negativen ins positive um
+                        if(buffer[i] == 0){
+                            buffer[i] = MAXDB;
+                            ErrCheck(GENERIC_ERROR, std::string("Heatmapdaten von Netzwerk " + std::to_string(i) + " wurden nicht aufgezeichnet!").c_str());
+                        }
+                        switch(mode){
+                            case HEATMAPMODE: break;
+                            case SEARCHMODE:{
+                                BYTE color = rssiToColorComponent(buffer[i]);
+                                searchColor[i-1] = RGBA(color, 255-color, 1);
+                                break;
+                            }
                         }
                     }
+                    if(mode == HEATMAPMODE) changeDatapoint((BYTE*)(buffer+1), gx, gy);
+                    blink = 8;
+                    break;
                 }
-                if(mode == HEATMAPMODE) changeDatapoint((BYTE*)(buffer+1), gx, gy);
-                blink = 8;
-                break;
-            }
-            case 0:{    //X
-                gx++;
-                blink = 0;
-                if(gx >= DATAPOINTRESOLUTIONX) gx = 0;
-                break;
-            }
-            case 1:{    //Y
-                gy++;
-                blink = 0;
-                if(gy >= DATAPOINTRESOLUTIONY) gy = 0;
-                break;
+                case 0:{    //X
+                    gx++;
+                    blink = 0;
+                    if(gx >= DATAPOINTRESOLUTIONX) gx = 0;
+                    break;
+                }
+                case 1:{    //Y
+                    gy++;
+                    blink = 0;
+                    if(gy >= DATAPOINTRESOLUTIONY) gy = 0;
+                    break;
+                }
             }
         }
     }
@@ -306,36 +306,39 @@ struct DatapointTriangle{
     Datapoint* d3;
 };
 
-struct DistIdx{
+struct DistancePair{
+    Datapoint* p1;
+    Datapoint* p2;
+    Datapoint* p3;
     DWORD distance;
-    DWORD idx;
 };
 
 //Fürs sortieren unten
-bool compareDistIdx(const DistIdx& p1, const DistIdx& p2){
+bool compareDistancePairs(const DistancePair& p1, const DistancePair& p2){
     return p1.distance < p2.distance;
 }
-//Sotiert den Index-Array indices basierend auf den Abstand der Punkten in points zum aktuellen Punkt point, es werden Point und skip nicht berücksichtigt und in den indices-Array mit aufgenommen
-DWORD findClosestPoints(Datapoint& point, Datapoint* points, DWORD count, DWORD* indices, Datapoint* skip){
-    DWORD counter = 0;
-    DistIdx distances[count-1];
+//Berechnet alle Distanzen jeder einzigartigen Punktepaare zum Punkt point
+DWORD calculateDistanceForPairs(Datapoint& point, Datapoint* points, DWORD count, DistancePair* pairs){
+    DWORD pairsCount = 0;
     for(DWORD i=0; i < count; ++i){
-        Datapoint& current = points[i];
-        if(&current == &point || &current == skip) continue;
-        DWORD distance = (point.x-current.x)*(point.x-current.x)+(point.y-current.y)*(point.y-current.y);
-        distances[counter].distance = distance;
-        distances[counter].idx = i;
-        counter++;
+        Datapoint& p1 = points[i];
+        if(&p1 == &point) continue;
+        for(DWORD j=i+1; j < count; ++j){
+            Datapoint& p2 = points[j];
+            if(&p2 == &point) continue;
+            DWORD distance1 = (point.x-p1.x)*(point.x-p1.x)+(point.y-p1.y)*(point.y-p1.y);
+            DWORD distance2 = (point.x-p2.x)*(point.x-p2.x)+(point.y-p2.y)*(point.y-p2.y);
+            pairs[pairsCount].p1 = &point;
+            pairs[pairsCount].p2 = &p1;
+            pairs[pairsCount].p3 = &p2;
+            pairs[pairsCount].distance = distance1 + distance2;
+            pairsCount++;
+        }
     }
-    std::sort(distances, distances+counter, compareDistIdx);
-    for(DWORD i=0; i < counter; ++i){
-        indices[i] = distances[i].idx;
-    }
-    return counter;
+    return pairsCount;
 }
 
-//TODO Dieser Algorithmus ist viel zu komplex O(n^4) und absolut unsauber implementiert, dringend besseren Algorithmus überlegen und aufräumen!
-//Ist aktuell auch noch nicht optimal, aber die Resultate sind in gut
+//TODO Dieser Algorithmus ist schon mal um einiges besser geworden, jedoch kann man noch immer einiges optimieren, da viele Berechnungen unnötig oft gemacht werden und man evtl. sogar eine Abbruchbedingung haben kann
 
 /// @brief Trianguliert eine Punktewolke von Datapoints, interpoliert die Werte dazwischen und füllt damit das Image aus heatmaps am Index heatmapIdx
 /// @param heatmaps Ein Array aus Images
@@ -352,13 +355,36 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
     }
     std::vector<DatapointTriangle> triangles;    //Hält alle Datenpunkt Dreiecke TODO kann man im vorab berechnen
 
-    for(DWORD i=0; i < count; ++i){
-        Datapoint& p1 = scaledDatapoints[i];
-        DWORD datapointsIdxP1[count];
-        DWORD count1 = findClosestPoints(p1, scaledDatapoints, count, datapointsIdxP1, nullptr);
-        Datapoint& p2 = scaledDatapoints[datapointsIdxP1[0]];
-        Datapoint& p3 = scaledDatapoints[datapointsIdxP1[1]];
+    WORD uniquePairs = (count-1)*(count-2)/2;
+    DistancePair pairs[uniquePairs*count];
+    for(DWORD i=0; i < count; ++i){     //Berechne alle Datapointpairs für jeden Punkt und sotiere diese anschließend
+        Datapoint& p = scaledDatapoints[i];
+        calculateDistanceForPairs(p, scaledDatapoints, count, pairs+uniquePairs*i);
+    }
+    std::sort(pairs, pairs+uniquePairs*count, compareDistancePairs);
+
+    for(DWORD i=0; i < uniquePairs*count; ++i){
+        Datapoint& p1 = *pairs[i].p1;
+        Datapoint& p2 = *pairs[i].p2;
+        Datapoint& p3 = *pairs[i].p3;
+
+        clearWindow(window);
+
         bool valid = true;
+
+                        for(size_t u=0; u < triangles.size(); ++u){
+                    drawInterpolatedTriangle(heatmaps[heatmapIdx], triangles[u].d1->x, triangles[u].d1->y, triangles[u].d2->x, triangles[u].d2->y, triangles[u].d3->x, triangles[u].d3->y,
+                    rssiToColorComponent(triangles[u].d1->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d2->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d3->rssi[heatmapIdx]));
+                }
+                copyImageToWindow(window, heatmaps[heatmapIdx], 0, 0, window->windowWidth-400, window->windowHeight-200);
+                drawTriangleOutline(window, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+                for(DWORD u=0; u < count; ++u){
+                    drawRectangle(window, scaledDatapoints[u].x, scaledDatapoints[u].y, 4, 4, RGBA(255, 255, 255));
+                }
+                drawRectangle(window, p1.x, p1.y, 4, 4, RGBA(0, 255, 0));
+                drawWindow(window);
+                getchar();
+
         for(size_t l=0; l < triangles.size(); ++l){  //Testet, ob es das Dreieck schon über eine andere Punktreihenfolge gibt
             DatapointTriangle& tri = triangles[l];
             if(&p1 != tri.d1 && &p1 != tri.d2 && &p1 != tri.d3) continue;
@@ -400,82 +426,11 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
         }
         if(!valid) continue;
         triangles.push_back({&p1, &p2, &p3});
-    }
 
-    for(DWORD i=0; i < count; ++i){
-        Datapoint& p1 = scaledDatapoints[i];
-        DWORD datapointsIdxP1[count];
-        DWORD count1 = findClosestPoints(p1, scaledDatapoints, count, datapointsIdxP1, nullptr);
+                        drawFontString(window, *font, "PASST!!!", 20, 20);
+                drawWindow(window);
+                getchar();
 
-        for(DWORD j=0; j < count1; ++j){
-            Datapoint& p2 = scaledDatapoints[datapointsIdxP1[j]];
-            DWORD datapointsIdxP2[count1];
-            DWORD count2 = findClosestPoints(p2, scaledDatapoints, count, datapointsIdxP2, &p1);
-
-            for(DWORD k=0; k < count2; ++k){
-                Datapoint& p3 = scaledDatapoints[datapointsIdxP2[k]];
-
-                // clearWindow(window);
-
-                bool valid = true;
-
-                // for(size_t u=0; u < triangles.size(); ++u){
-                //     drawInterpolatedTriangle(heatmaps[heatmapIdx], triangles[u].d1->x, triangles[u].d1->y, triangles[u].d2->x, triangles[u].d2->y, triangles[u].d3->x, triangles[u].d3->y,
-                //      rssiToColorComponent(triangles[u].d1->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d2->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d3->rssi[heatmapIdx]));
-                // }
-                // copyImageToWindow(window, heatmaps[heatmapIdx], 0, 0, window->windowWidth-400, window->windowHeight-200);
-                // drawTriangleOutline(window, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-                // for(DWORD u=0; u < count; ++u){
-                //     drawRectangle(window, scaledDatapoints[u].x, scaledDatapoints[u].y, 4, 4, RGBA(255, 255, 255));
-                // }
-
-                for(size_t l=0; l < triangles.size(); ++l){  //Testet, ob es das Dreieck schon über eine andere Punktreihenfolge gibt
-                    DatapointTriangle& tri = triangles[l];
-                    if(&p1 != tri.d1 && &p1 != tri.d2 && &p1 != tri.d3) continue;
-                    if(&p2 != tri.d1 && &p2 != tri.d2 && &p2 != tri.d3) continue;
-                    if(&p3 != tri.d1 && &p3 != tri.d2 && &p3 != tri.d3) continue;
-                    valid = false;
-                    break;
-                }
-                if(!valid) continue;
-                for(DWORD l=0; l < count2; ++l){     //Testet ob das Dreieck irgendwelche Datenpunkte einschließt (ausser die aktuellen)
-                    Datapoint& p4 = scaledDatapoints[datapointsIdxP2[l]];
-                    if(l == k) continue;
-                    if(pointInTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y)){
-                        valid = false;
-                        break;
-                    }
-                }
-                if(!valid) continue;
-                DWORD identical = 0;
-                for(size_t l=0; l < triangles.size(); ++l){     //Testet ob das Dreieck mit anderen überlappt
-                    DatapointTriangle& tri = triangles[l];
-                    if(triangleOverlap(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, tri.d1->x, tri.d1->y, tri.d2->x, tri.d2->y, tri.d3->x, tri.d3->y, identical)){
-                        valid = false;
-                        break;
-                    }
-                    if(identical >= 3 && identical < 20){     //Testet ob der Mittelpunkt des Dreieckes sich in einem anderen befindet
-                        for(size_t c=0; c < triangles.size(); ++c){
-                            WORD midX = (p1.x+p2.x+p3.x)/3;
-                            WORD midY = (p1.y+p2.y+p3.y)/3;
-                            DatapointTriangle& tri2 = triangles[c];
-                            if(pointInTriangle(tri2.d1->x, tri2.d1->y, tri2.d2->x, tri2.d2->y, tri2.d3->x, tri2.d3->y, midX, midY)){
-                                identical = 20;
-                                valid = false;
-                                l = triangles.size();
-                                break;
-                            }
-                        }
-                    }
-                }
-                if(!valid) continue;
-                triangles.push_back({&p1, &p2, &p3});
-
-                // drawFontString(window, *font, "PASST!!!", 20, 20);
-                // drawWindow(window);
-                // getchar();
-            }
-        }
     }
 
     for(size_t i=0; i < triangles.size(); ++i){
@@ -871,12 +826,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     destroyImage(distanceImage);
 
-    //TODO das ist ganz übel...
-    bool dontKill = false;
-    std::thread meh(killProgramAfterTimeout, std::ref(dontKill), 2000);
     getStrengthThread.join();
-    dontKill = true;
-    meh.join();
 
     destroyUDPServer(server);
     WSACleanup();

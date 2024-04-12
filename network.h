@@ -10,11 +10,12 @@ struct UDPServer{
     SOCKET socket;
 };
 
-/// @brief Erstellt einen UDP Server auf dem Port port und speichert alle Daten im server struct
+/// @brief Erstellt einen UDP Server auf dem Port port mit einem Timeout von timeoutMillis in Millisekunden für recv-Aufrufe und speichert alle Daten im server struct
 /// @param server Das UDP Server struct
 /// @param port Der Serverport
+/// @param timeoutMillis Das Timeout
 /// @return ErrCode
-ErrCode createUDPServer(UDPServer& server, u_short port){
+ErrCode createUDPServer(UDPServer& server, u_short port, DWORD timeoutMillis = 10){
     server.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if(server.socket == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
 
@@ -22,6 +23,8 @@ ErrCode createUDPServer(UDPServer& server, u_short port){
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
     serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+
+    if(setsockopt(server.socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
 
     if(bind(server.socket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht binden");
     return SUCCESS;
