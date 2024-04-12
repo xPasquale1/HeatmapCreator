@@ -306,39 +306,7 @@ struct DatapointTriangle{
     Datapoint* d3;
 };
 
-struct DistancePair{
-    Datapoint* p1;
-    Datapoint* p2;
-    Datapoint* p3;
-    DWORD distance;
-};
-
-//Fürs sortieren unten
-bool compareDistancePairs(const DistancePair& p1, const DistancePair& p2){
-    return p1.distance < p2.distance;
-}
-//Berechnet alle Distanzen jeder einzigartigen Punktepaare zum Punkt point
-DWORD calculateDistanceForPairs(Datapoint& point, Datapoint* points, DWORD count, DistancePair* pairs){
-    DWORD pairsCount = 0;
-    for(DWORD i=0; i < count; ++i){
-        Datapoint& p1 = points[i];
-        if(&p1 == &point) continue;
-        for(DWORD j=i+1; j < count; ++j){
-            Datapoint& p2 = points[j];
-            if(&p2 == &point) continue;
-            DWORD distance1 = (point.x-p1.x)*(point.x-p1.x)+(point.y-p1.y)*(point.y-p1.y);
-            DWORD distance2 = (point.x-p2.x)*(point.x-p2.x)+(point.y-p2.y)*(point.y-p2.y);
-            pairs[pairsCount].p1 = &point;
-            pairs[pairsCount].p2 = &p1;
-            pairs[pairsCount].p3 = &p2;
-            pairs[pairsCount].distance = distance1 + distance2;
-            pairsCount++;
-        }
-    }
-    return pairsCount;
-}
-
-//TODO Dieser Algorithmus ist schon mal um einiges besser geworden, jedoch kann man noch immer einiges optimieren, da viele Berechnungen unnötig oft gemacht werden und man evtl. sogar eine Abbruchbedingung haben kann
+//TODO O(n^4) brute force Delauney Umsetzung, es gibt deutlich effizientere Methoden
 
 /// @brief Trianguliert eine Punktewolke von Datapoints, interpoliert die Werte dazwischen und füllt damit das Image aus heatmaps am Index heatmapIdx
 /// @param heatmaps Ein Array aus Images
@@ -355,91 +323,52 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
     }
     std::vector<DatapointTriangle> triangles;    //Hält alle Datenpunkt Dreiecke TODO kann man im vorab berechnen
 
-    WORD uniquePairs = (count-1)*(count-2)/2;
-    DistancePair pairs[uniquePairs*count];
-    for(DWORD i=0; i < count; ++i){     //Berechne alle Datapointpairs für jeden Punkt und sotiere diese anschließend
-        Datapoint& p = scaledDatapoints[i];
-        calculateDistanceForPairs(p, scaledDatapoints, count, pairs+uniquePairs*i);
-    }
-    std::sort(pairs, pairs+uniquePairs*count, compareDistancePairs);
+    for(DWORD i=0; i < count; ++i){
+        Datapoint& p1 = scaledDatapoints[i];
+        for(DWORD j=0; j < count; ++j){
+            if(j == i) continue;
+            Datapoint& p2 = scaledDatapoints[j];
+            for(DWORD k=0; k < count; ++k){
+                if(k == j || k == i) continue;
+                Datapoint& p3 = scaledDatapoints[k];
+                bool valid = true;
 
-    for(DWORD i=0; i < uniquePairs*count; ++i){
-        Datapoint& p1 = *pairs[i].p1;
-        Datapoint& p2 = *pairs[i].p2;
-        Datapoint& p3 = *pairs[i].p3;
+                float midXP1P2 = (p1.x+p2.x)/2;
+                float midYP1P2 = (p1.y+p2.y)/2;
+                float dyP1P2 = (p2.y-p1.y);
+                float mP1P2;
+                dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e6f;
+                float bP1P2 = midYP1P2 - mP1P2*midXP1P2;
 
-        clearWindow(window);
+                float midXP1P3 = (p1.x+p3.x)/2;
+                float midYP1P3 = (p1.y+p3.y)/2;
+                float dyP1P3 = (p3.y-p1.y);
+                float mP1P3;
+                dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e6f;
+                float bP1P3 = midYP1P3 - mP1P3*midXP1P3;
 
-        bool valid = true;
-
-                        for(size_t u=0; u < triangles.size(); ++u){
-                    drawInterpolatedTriangle(heatmaps[heatmapIdx], triangles[u].d1->x, triangles[u].d1->y, triangles[u].d2->x, triangles[u].d2->y, triangles[u].d3->x, triangles[u].d3->y,
-                    rssiToColorComponent(triangles[u].d1->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d2->rssi[heatmapIdx]), rssiToColorComponent(triangles[u].d3->rssi[heatmapIdx]));
-                }
-                copyImageToWindow(window, heatmaps[heatmapIdx], 0, 0, window->windowWidth-400, window->windowHeight-200);
-                drawTriangleOutline(window, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
-                for(DWORD u=0; u < count; ++u){
-                    drawRectangle(window, scaledDatapoints[u].x, scaledDatapoints[u].y, 4, 4, RGBA(255, 255, 255));
-                }
-                drawRectangle(window, p1.x, p1.y, 4, 4, RGBA(0, 255, 0));
-                drawWindow(window);
-                getchar();
-
-        for(size_t l=0; l < triangles.size(); ++l){  //Testet, ob es das Dreieck schon über eine andere Punktreihenfolge gibt
-            DatapointTriangle& tri = triangles[l];
-            if(&p1 != tri.d1 && &p1 != tri.d2 && &p1 != tri.d3) continue;
-            if(&p2 != tri.d1 && &p2 != tri.d2 && &p2 != tri.d3) continue;
-            if(&p3 != tri.d1 && &p3 != tri.d2 && &p3 != tri.d3) continue;
-            valid = false;
-            break;
-        }
-        if(!valid) continue;
-        for(DWORD l=0; l < count; ++l){     //Testet ob das Dreieck irgendwelche Datenpunkte einschließt (ausser die aktuellen)
-            Datapoint& p4 = scaledDatapoints[l];
-            if(&p4 == &p3 || &p4 == &p2 || &p4 == &p1) continue;
-            if(pointInTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y)){
-                valid = false;
-                break;
-            }
-        }
-        if(!valid) continue;
-        DWORD identical = 0;
-        for(size_t l=0; l < triangles.size(); ++l){     //Testet ob das Dreieck mit anderen überlappt
-            DatapointTriangle& tri = triangles[l];
-            if(triangleOverlap(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, tri.d1->x, tri.d1->y, tri.d2->x, tri.d2->y, tri.d3->x, tri.d3->y, identical)){
-                valid = false;
-                break;
-            }
-            if(identical >= 3 && identical < 20){     //Testet ob der Mittelpunkt des Dreieckes sich in einem anderen befindet
-                for(size_t c=0; c < triangles.size(); ++c){
-                    WORD midX = (p1.x+p2.x+p3.x)/3;
-                    WORD midY = (p1.y+p2.y+p3.y)/3;
-                    DatapointTriangle& tri2 = triangles[c];
-                    if(pointInTriangle(tri2.d1->x, tri2.d1->y, tri2.d2->x, tri2.d2->y, tri2.d3->x, tri2.d3->y, midX, midY)){
-                        identical = 20;
+                float centerX = (bP1P3-bP1P2)/(mP1P2-mP1P3);
+                float centerY = mP1P2*centerX+bP1P2;
+                float radius2 = (centerX-p1.x)*(centerX-p1.x)+(centerY-p1.y)*(centerY-p1.y);
+                for(DWORD l=0; l < count; ++l){
+                    if(l == k || l == j || l == i) continue;
+                    Datapoint& p = scaledDatapoints[l];
+                    float distance2 = (centerX-p.x)*(centerX-p.x)+(centerY-p.y)*(centerY-p.y);
+                    if(distance2 < radius2){
                         valid = false;
-                        l = triangles.size();
                         break;
                     }
                 }
+                if(!valid) continue;
+                triangles.push_back({&p1, &p2, &p3});
             }
         }
-        if(!valid) continue;
-        triangles.push_back({&p1, &p2, &p3});
-
-                        drawFontString(window, *font, "PASST!!!", 20, 20);
-                drawWindow(window);
-                getchar();
-
     }
 
     for(size_t i=0; i < triangles.size(); ++i){
         DatapointTriangle& tri = triangles[i];
-        // clearWindow(window);
         drawInterpolatedTriangle(heatmaps[heatmapIdx], tri.d1->x, tri.d1->y, tri.d2->x, tri.d2->y, tri.d3->x, tri.d3->y,
         rssiToColorComponent(tri.d1->rssi[heatmapIdx]), rssiToColorComponent(tri.d2->rssi[heatmapIdx]), rssiToColorComponent(tri.d3->rssi[heatmapIdx]));
-        // copyImageToWindow(window, heatmaps[heatmapIdx], 200, 0, window->windowWidth, window->windowHeight);
-        // drawWindow(window);
     }
 }
 
