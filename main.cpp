@@ -130,20 +130,6 @@ void processNetworkPackets()noexcept{
     }
 }
 
-/// @brief Beendet das Programm mit exit(1) nach einem Timeout, sollte die Variable signal nicht in diesem Moment auf true sein 
-/// @param signal Signal als boolean Wert
-/// @param timeoutMillis Timeout in Millisekunden
-void killProgramAfterTimeout(bool& signal, DWORD timeoutMillis = 2000)noexcept{
-    FILETIME ft;
-    GetSystemTimeAsFileTime(&ft);
-    QWORD startTime = (ft.dwLowDateTime | ((QWORD)ft.dwHighDateTime<<32))/10000;
-    while(!signal){
-        GetSystemTimeAsFileTime(&ft);
-        QWORD currentTime = (ft.dwLowDateTime | ((QWORD)ft.dwHighDateTime<<32))/10000;
-        if(currentTime - startTime > timeoutMillis) exit(1);
-    }
-}
-
 /// @brief Schreibt Werte vom Image original linear interpoliert in das Image interpolated
 /// @param original Das original Image
 /// @param interpolated Das resultierende interpolierte Image
@@ -178,101 +164,6 @@ void interpolateHeatmap(Image& original, Image& interpolated)noexcept{
             }
         }
     }
-}
-
-//Testet ob ein Punkt (x4, y4) sich in einem Dreieck befindet, mit den Eckpunkten (x1, y1),...
-bool pointInTriangle(WORD x1, WORD y1, WORD x2, WORD y2, WORD x3, WORD y3, WORD x4, WORD y4)noexcept{
-    float totalArea = 1.f/((x2-x1)*(y3-y2)-(y2-y1)*(x3-x2));
-
-    float m1 = ((x2-x4)*(y3-y4)-(x3-x4)*(y2-y4))*totalArea;
-    float m2 = ((x3-x4)*(y1-y4)-(x1-x4)*(y3-y4))*totalArea;
-    float m3 = 1-m2-m1;
-    return (m1 >= 0 && m2 >= 0 && m3 >= 0);
-}
-
-//Testet ob sich 2 Linienabschnitte schneiden, wobei identische als falsch gewertet werden, parallel aufeindander liegende, die nicht identisch sind aber schon
-//Inkrementiert die identical Variable, sollten die Linienabschnitte identisch sein
-bool lineSegmentIntersection(WORD xBeg1, WORD yBeg1, WORD xEnd1, WORD yEnd1, WORD xBeg2, WORD yBeg2, WORD xEnd2, WORD yEnd2, DWORD& identical)noexcept{
-    if(xBeg1 == xBeg2 && yBeg1 == yBeg2 && xEnd1 == xEnd2 && yEnd1 == yEnd2){   //Linien sind identisch
-        identical++;
-        return false;
-    }
-    if(xBeg1 == xEnd2 && yBeg1 == yEnd2 && xEnd1 == xBeg2 && yEnd1 == yBeg2){
-        identical++;
-        return false;
-    }
-    int dx1 = xEnd1 - xBeg1;
-    int dy1 = yEnd1 - yBeg1;
-    int dx2 = xEnd2 - xBeg2;
-    int dy2 = yEnd2 - yBeg2;
-
-    int denom = dy2*dx1-dx2*dy1;
-    if(denom == 0){     //Linien parallel, teste ob einer der Punkte in der jeweils anderen Linie liegt
-        float tx1 = (xBeg2 - xBeg1)/(float)dx1;
-        float ty1 = (yBeg2 - yBeg1)/(float)dy1;
-        float tx2 = (xEnd2 - xBeg1)/(float)dx1;
-        float ty2 = (yEnd2 - yBeg1)/(float)dy1;
-        float tx3 = (xBeg1 - xBeg2)/(float)dx2;
-        float ty3 = (yBeg1 - yBeg2)/(float)dy2;
-        float tx4 = (xEnd1 - xBeg2)/(float)dx2;
-        float ty4 = (yEnd1 - yBeg2)/(float)dy2;
-        if(tx1 > 0.001 && tx1 < 0.999 && ty1 > 0.001 && ty1 < 0.999) return true;
-        if(tx2 > 0.001 && tx2 < 0.999 && ty2 > 0.001 && ty2 < 0.999) return true;
-        if(tx3 > 0.001 && tx3 < 0.999 && ty3 > 0.001 && ty3 < 0.999) return true;
-        if(tx4 > 0.001 && tx4 < 0.999 && ty4 > 0.001 && ty4 < 0.999) return true;
-        return false;
-    }
-
-    int dxBeg = xBeg2-xBeg1;
-    int dyBeg = yBeg2-yBeg1;
-
-    float t1 = (dy2*dxBeg-dx2*dyBeg)/(float)denom;
-    float t2 = (dy1*dxBeg-dx1*dyBeg)/(float)denom;
-
-    return (t1 > 0 && t1 < 1 && t2 > 0 && t2 < 1);  //TODO ist noch nicht ganz richtig, es könnte ja ein Endpunkt auf einer Kante liegen, was okay ist
-}
-
-//Zeichnet den Umriss eines Dreieckes mit den Eckpunkten (x1, y1),...
-void drawTriangleOutline(Window* window, WORD x1, WORD y1, WORD x2, WORD y2, WORD x3, WORD y3, DWORD color=0)noexcept{
-    if(color == 0) color = RGBA(255, 0, 0);
-    WORD xOff = 200/window->pixelSize;
-    drawLine(window, x1, y1, x2, y2, color);
-    drawLine(window, x1, y1, x3, y3, color);
-    drawLine(window, x2, y2, x3, y3, color);
-}
-
-//Testet ob 2 Dreiecke Überlappen, eine gemeinsame Kante wird nicht als Überlappung gezählt, identische Dreiecke jedoch schon
-bool triangleOverlap(WORD x11, WORD y11, WORD x12, WORD y12, WORD x13, WORD y13, WORD x21, WORD y21, WORD x22, WORD y22, WORD x23, WORD y23, DWORD& identical)noexcept{
-    if(lineSegmentIntersection(x11, y11, x12, y12, x21, y21, x22, y22, identical)) return true;
-    if(lineSegmentIntersection(x11, y11, x13, y13, x21, y21, x22, y22, identical)) return true;
-    if(lineSegmentIntersection(x12, y12, x13, y13, x21, y21, x22, y22, identical)) return true;
-
-    if(lineSegmentIntersection(x11, y11, x12, y12, x21, y21, x23, y23, identical)) return true;
-    if(lineSegmentIntersection(x11, y11, x13, y13, x21, y21, x23, y23, identical)) return true;
-    if(lineSegmentIntersection(x12, y12, x13, y13, x21, y21, x23, y23, identical)) return true;
-
-    if(lineSegmentIntersection(x11, y11, x12, y12, x22, y22, x23, y23, identical)) return true;
-    if(lineSegmentIntersection(x11, y11, x13, y13, x22, y22, x23, y23, identical)) return true;
-    if(lineSegmentIntersection(x12, y12, x13, y13, x22, y22, x23, y23, identical)) return true;
-
-    return false;
-}
-
-//Gibt bei jedem Aufruf eine Farbe aus einer definierten Farbreihenfolge zurück
-static BYTE colorCount = 0;
-DWORD getColor(){
-    colorCount++;
-    switch(colorCount){
-        case 1: return RGBA(180, 180, 180);
-        case 2: return RGBA(190, 190, 190);
-        case 3: return RGBA(210, 210, 210);
-        case 4: return RGBA(230, 230, 230);
-        case 5: return RGBA(255, 255, 255);
-        case 6: return RGBA(160, 160, 160);
-        case 7: return RGBA(140, 140, 140);
-        default: colorCount = 0;
-    }
-    return RGBA(120, 120, 120);
 }
 
 //Zeichnet ein linear interpoliertes Dreick in das Image image, mit den Eckpunkten (x1, y1),... und den Eckpunktfarben val1,...
