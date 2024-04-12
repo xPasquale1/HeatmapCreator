@@ -477,6 +477,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     Image floorplan;
     if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
+    for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
+        floorplan.data[i] *= 4;     //Macht das Bild heller
+    }
 
     Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){

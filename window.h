@@ -385,23 +385,14 @@ struct Image{
 Image _default_texture;
 
 ErrCode loadImage(const char* name, Image& image)noexcept{
-	std::fstream file; file.open(name, std::ios::in);
-	if(!file.is_open()) return FILE_NOT_FOUND;
-	//Lese Breite und Höhe
-	std::string word;
-	file >> word;
-	image.width = std::atoi(word.c_str());
-	file >> word;
-	image.height = std::atoi(word.c_str());
-	int pos = file.tellg();
-	image.data = new(std::nothrow) DWORD[image.width*image.height];
-	if(!image.data) return BAD_ALLOC;
-	file.close();
+	std::fstream file;
 	file.open(name, std::ios::in | std::ios::binary);
 	if(!file.is_open()) return FILE_NOT_FOUND;
-	file.seekg(pos);
+	file.read((char*)&image.width, 2);
+	file.read((char*)&image.height, 2);
+	image.data = new(std::nothrow) DWORD[image.width*image.height];
+	if(!image.data) return BAD_ALLOC;
 	char val[4];
-	file.read(&val[0], 1);	//überspringe letztes Leerzeichen
 	for(DWORD i=0; i < image.width*image.height; ++i){
 		file.read(&val[0], 1);
 		file.read(&val[1], 1);
