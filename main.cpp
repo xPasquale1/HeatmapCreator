@@ -5,25 +5,18 @@
 #include <algorithm>
 
 /*
-    Ideen:
-    Aktuell gibt es keine Metriken über die Channel Auslastungen/Qualitäten, mit denen der esp verbunden wird, es kann also sein, dass die Heatmap auf einem qualitativ
-    besseren/schlechteren Channel erstellt wird, wie Positionsmessungen später, sowie kann es sein, dass die Channel schon in der Erstellung der Heatmap selbst wechseln.
-    Man könnte also die Channel mit übertragen und speichern und dann basierend darauf Entscheidungen treffen.
-
-    Die Signalstärken schwanken noch immer sehr, man sollte die Heatmap Messungen am besten über sehr viele Werte "gemittelt" erstellen, sodass die Positionsdaten ebenfalls
-    "gemittelt" werden über die Zeit, damit die Ergebnisse evtl. konvergieren.
-
     TODOS:
     Lineare Interpolation des Triangulationsalgorithmus zu einer logarithmischen umändern
 
     Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
 
-    Eine Datenstrukur, um aud fie Datenpunkte per x und y Wert zuzugreifen
+    Eine Datenstrukur, um auf die Datenpunkte per x und y Wert zuzugreifen
 */
 
 Window* window = nullptr;
 Font* font = nullptr;
-UDPServer server;
+UDPServer mainServer;
+UDPServer dataServer;
 
 //TODO Annahme Signalstärke von -20dB bis -90dB
 #define MAXDB 90
@@ -81,15 +74,52 @@ BYTE rssiToColorComponent(BYTE rssi)noexcept{
     return ((rssi-MINDB)*255)/(MAXDB-MINDB);
 }
 
+#define SPOTCOUNT 37
+static BYTE spotCount = 0;
+static SWORD spotBuffer[HEATMAPCOUNT*SPOTCOUNT]{0};
+static SBYTE spotMin[HEATMAPCOUNT] = {-20, -20, -20};
+static SBYTE spotMax[HEATMAPCOUNT] = {-90, -90, -90};
+void processDataServer()noexcept{
+    char buffer[1024];
+    while(1){
+        if(!running) break;
+        int length = receiveUDPServer(dataServer, buffer, sizeof(buffer));
+        if(length != SOCKET_ERROR && buffer[0] == 2){
+            for(int i=1; i < length; ++i){
+                if(buffer[i] == 0) std::cout << "Messung hatte 0 Wert..." << std::endl;
+                spotBuffer[spotCount*HEATMAPCOUNT+(i-1)] = buffer[i];
+            }
+            spotCount++;
+            if(spotCount >= SPOTCOUNT){
+                SWORD avgRSSI[HEATMAPCOUNT]{};
+                for(BYTE i=0; i < SPOTCOUNT; ++i){
+                    for(BYTE j=0; j < HEATMAPCOUNT; ++j){
+                        avgRSSI[j] += spotBuffer[i*HEATMAPCOUNT+j];
+                        spotBuffer[i*HEATMAPCOUNT+j] = 0;
+                    }
+                }
+                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+                    SBYTE avgVal = avgRSSI[i]/SPOTCOUNT;
+                    if(avgVal < spotMin[i]) spotMin[i] = avgVal;
+                    if(avgVal > spotMax[i]) spotMax[i] = avgVal;
+                    std::cout << (int)avgVal << " | Min: " << (int)spotMin[i] << " - Max: " << (int)spotMax[i] << " - Delta: " << spotMax[i]-spotMin[i] << std::endl;
+                }
+                std::cout << "----" << std::endl;
+                spotCount = 0;
+            }
+        }
+    }
+}
+
 //TODO Fehler melden?
 
-/// @brief Öffnet den globalen Server und hört einfach ob Packete vom esp32 ankommen und verarbeitet diese
+/// @brief Öffnet den globalen Server und hört einfach ob Pakete vom esp32 ankommen und verarbeitet diese
 /// @param -
 void processNetworkPackets()noexcept{
     char buffer[1024];
     while(1){
         if(!running) break;
-        int length = receiveUDPServer(server, buffer, sizeof(buffer));
+        int length = receiveUDPServer(mainServer, buffer, sizeof(buffer));
         if(length != SOCKET_ERROR){     //TODO Problem ist der Timeout wird auch als SOCKET_ERROR ausgegeben...
             switch((BYTE)buffer[0]){
                 case 2:{    //Signalstärke der Router
@@ -250,7 +280,7 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                         break;
                     }
                 }
-                if(!valid) continue;
+                if(!valid) continue;       //TODO muss man noch auf Dreiecksintersection testen?
                 triangles.push_back({&p1, &p2, &p3});
             }
         }
@@ -399,6 +429,9 @@ float getHeatmapQuality(BYTE idx)noexcept{
         total += datapoints[i].rssi[idx]-MINDB;
     }
     return 1.f - (float)total/(MAXDB-MINDB)/datapointsCount;
+    // float x = 1.f - (float)total/(MAXDB-MINDB)/datapointsCount;
+    // float x1 = (x-1);
+    // return -(x1*x1)+1;
 }
 
 struct DistanceMap{
@@ -464,13 +497,12 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         return ErrCheck(GENERIC_ERROR, "WSAstartup");
     }
     
-    if(ErrCheck(createUDPServer(server, 4984), "UDP Server erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createUDPServer(dataServer, 4985), "Daten UDP Server erstellen") != SUCCESS) return -1;
     if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     if(ErrCheck(createWindow(hInstance, 1200, 1000, 300, 100, 1, window, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
     
-    // HANDLE device = nullptr;
-    // ErrCheck(openDevice(device, "\\\\.\\COM10", 9600), "Mikrokontroller verbinden");
     if(ErrCheck(createFont(font), "Font erstellen") != SUCCESS) return -1;
     if(ErrCheck(loadFont("fonts/ascii.tex", *font, {82, 83}), "Font laden") != SUCCESS) return -1;
     font->font_size = 42/window->pixelSize;
@@ -564,8 +596,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[10].data = &buttons[10];
     buttons[10].textsize = 24/window->pixelSize;
 
-    // std::thread getStrengthThread(getStrength, device);
     std::thread getStrengthThread(processNetworkPackets);
+
+    std::thread getDataThread(processDataServer);
 
     Image distanceImage;
     distanceImage.width = INTERPOLATEDHEATMAPX;
@@ -619,8 +652,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             }
         }
         DWORD offset = drawFontString(window, *font, longToString(-selectedStrength), 10/window->pixelSize, 10/window->pixelSize);
-        selectedStrength = (R(searchColor[showHeatmapIdx])*(MAXDB-MINDB))/255.f+MINDB;
-        drawFontString(window, *font, longToString(-selectedStrength), 10/window->pixelSize+offset+16/window->pixelSize, 10/window->pixelSize);
+        drawFontString(window, *font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 10/window->pixelSize+offset+16/window->pixelSize, 10/window->pixelSize);
 
         offset = drawFontString(window, *font, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125/window->pixelSize), buttons[7].pos.y);
         buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25/window->pixelSize+offset), buttons[7].pos.y};
@@ -650,13 +682,14 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     destroyImage(distanceImage);
 
     getStrengthThread.join();
+    getDataThread.join();
 
-    destroyUDPServer(server);
+    destroyUDPServer(mainServer);
+    destroyUDPServer(dataServer);
     WSACleanup();
     destroyFont(font);
     for(int i=0; i < HEATMAPCOUNT; ++i){
         destroyImage(heatmapsInterpolated[i]);
     }
-    // if(device) closeDevice(device);
     return 0;
 }
