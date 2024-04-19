@@ -249,3 +249,164 @@ float getAvgData(PerfAnalyzer& pa, BYTE idx){
 	}
 	return out/8.;
 }
+
+std::vector<void*> allocs;
+
+struct HashmapData{
+	HashmapData* next = nullptr;
+	DWORD key;
+	void* data = nullptr;
+	void* operator new(size_t size){
+		void* ptr = ::operator new(size);
+		allocs.push_back(ptr);
+		return ptr;
+	}
+	void operator delete(void* ptr){
+		for(std::vector<void*>::iterator iter = allocs.begin(); iter != allocs.end(); iter++){
+			if((*iter) == ptr){
+				allocs.erase(iter);
+				break;
+			}
+		}
+		::operator delete(ptr);
+	}
+};
+
+//Bildet eine DWORD key auf einen generischen void* ab
+struct Hashmap{
+	DWORD tableSize = 0;
+	DWORD size = 0;
+	HashmapData** tableBuffer = nullptr;
+};
+
+ErrCode createHashmap(Hashmap& map, DWORD tableSize=800)noexcept{
+	map.tableSize = tableSize;
+	map.tableBuffer = new(std::nothrow) HashmapData*[tableSize]{nullptr};
+	if(!map.tableBuffer) return BAD_ALLOC;
+	return SUCCESS;
+}
+
+//Löscht die Hashmap und deallokiert alle intern allokierten Ressourcen
+void destroyHashmap(Hashmap& map)noexcept{
+	for(DWORD i=0; i < map.tableSize; ++i){
+		HashmapData* current = map.tableBuffer[i];
+		while(current != nullptr){
+			HashmapData* toDelete = current;
+			current = current->next;
+			delete toDelete;
+		}
+	}
+	delete[] map.tableBuffer;
+	map.size = 0;
+}
+
+//Pointer für den Schlüssel key falls gefunden, sonst nullptr
+void* searchHashmap(Hashmap& map, DWORD key)noexcept{
+	DWORD idx = key % map.tableSize;
+	HashmapData* current = map.tableBuffer[idx];
+	while(current != nullptr){
+		if(current->key == key) return current->data;
+		current = current->next;
+	}
+	return nullptr;
+}
+
+//Fügt das Schlüssel-Wert-Paar ein oder updated dieses, falls dieses schon vorhanden sind
+void insertHashmap(Hashmap& map, DWORD key, void* data)noexcept{
+	DWORD idx = key % map.tableSize;
+	HashmapData** current = &map.tableBuffer[idx];
+	HashmapData* prev = *current;
+	while(*current != nullptr){
+		if((*current)->key == key){
+			(*current)->data = data;
+			return;
+		}
+		prev = *current;
+		current = &((*current)->next);
+	}
+	*current = new HashmapData;
+	(*current)->data = data;
+	(*current)->key = key;
+	map.size++;
+	if(prev) prev->next = *current;
+}
+
+//Löscht den Pointer aus der Hashmap und gibt den Zeiger auf die Daten zurück, nullptr falls nicht gefunden
+void* removeHashmap(Hashmap& map, DWORD key)noexcept{
+	DWORD idx = key % map.tableSize;
+	HashmapData** current = &map.tableBuffer[idx];
+	while(*current != nullptr){
+		if((*current)->key == key){
+			HashmapData* toDelete = (*current);
+			*current = (*current)->next;
+			void* data = toDelete->data;
+			delete toDelete;
+			map.size--;
+			return data;
+		}
+		current = &(*current)->next;
+	}
+	return nullptr;
+}
+
+void clearHashmap(Hashmap& map)noexcept{
+	for(DWORD i=0; i < map.tableSize; ++i){
+		HashmapData* current = map.tableBuffer[i];
+		while(current != nullptr){
+			HashmapData* toDelete = current;
+			current = current->next;
+			delete toDelete;
+		}
+		map.tableBuffer[i] = nullptr;
+	}
+	map.size = 0;
+}
+
+struct HashmapIterator{
+	void* data = nullptr;				//Der Pointer in der Hashmap
+	DWORD key;							//Der Key für den Pointer
+	bool valid = false;					//True falls der Iterator valide ist, false sonst
+	HashmapData* current = nullptr;		//Intern
+	DWORD bucketIndex = 0;				//Der aktuelle "Bucket" Index
+};
+
+//Lässt den Iterator durch die Hashmap iterieren, falls der Iterator valid ist ist iterator.current != nullptr, sonst ist der Iterator invalide
+HashmapIterator& iterateHashmap(Hashmap map, HashmapIterator& iterator)noexcept{
+	while(1){
+		if(iterator.bucketIndex >= map.tableSize){
+			iterator.valid = false;
+			break;
+		}
+		while(iterator.current != nullptr){
+			iterator.data = iterator.current->data;
+			iterator.key = iterator.current->key;
+			iterator.current = iterator.current->next;
+			iterator.valid = true;
+			return iterator;
+		}
+		iterator.current = map.tableBuffer[iterator.bucketIndex];
+		iterator.bucketIndex++;
+	}
+	return iterator;
+}
+
+void resetHashmapIterator(HashmapIterator& iterator){
+	iterator.bucketIndex = 0;
+	iterator.current = nullptr;
+	iterator.data = nullptr;
+}
+
+//Befüllt das Array buffer mit allen Pointern die in der Hashmap sind
+void getAllElementsHashmap(Hashmap& map, void** buffer)noexcept{
+	DWORD idx = 0;
+	for(DWORD i=0; i < map.tableSize; ++i){
+		HashmapData* current = map.tableBuffer[i];
+		while(current != nullptr){
+			buffer[idx++] = current->data;
+			current = current->next;
+		}
+	}
+}
+
+//Wie viele Pointer sich in der Hashmap befinden
+DWORD sizeHashmap(Hashmap& map)noexcept{return map.size;}

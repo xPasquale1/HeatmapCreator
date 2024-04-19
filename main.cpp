@@ -40,8 +40,8 @@ struct Datapoint{
     WORD y;
     BYTE rssi[HEATMAPCOUNT];
 };
-static Datapoint datapoints[DATAPOINTCOUNT];
-static DWORD datapointsCount = 0;
+static Hashmap datapoints;
+#define coordinatesToKey(x, y)((x<<16)|y)
 
 static BYTE mode = 0;
 static DWORD searchColor[HEATMAPCOUNT]{0};
@@ -52,21 +52,14 @@ static BYTE blink = 0;
 
 //Fügt einen neuen globalen Datepunkt hinzu, sollte es diesen nicht schon bereits an der Position geben
 void changeDatapoint(BYTE* rssi, WORD x, WORD y){
-    //Füge neuen Datenpunkt hinzu, falls es neue Koordinaten gibt, sonst update den aktuellen
-    bool newData = true;
-    for(size_t i=0; i < datapointsCount; ++i){
-        if(datapoints[i].x == x && datapoints[i].y == y){
-            for(BYTE j=0; j < HEATMAPCOUNT; ++j) datapoints[i].rssi[j] = rssi[j];
-            newData = false;
-            break;
-        }
+    Datapoint* datapoint = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(x, y));
+    if(!datapoint){
+        datapoint = new Datapoint;
+        datapoint->x = x;
+        datapoint->y = y;
+        for(BYTE i=0; i < HEATMAPCOUNT; ++i) datapoint->rssi[i] = rssi[i];
     }
-    if(newData){
-        datapoints[datapointsCount].x = x;
-        datapoints[datapointsCount].y = y;
-        for(BYTE j=0; j < HEATMAPCOUNT; ++j) datapoints[datapointsCount].rssi[j] = rssi[j];
-        datapointsCount++;
-    }
+    insertHashmap(datapoints, coordinatesToKey(x, y), datapoint);
 }
 
 //Konvertiert einen RSSI-Wert (in der Range MINDB-MAXDB) zu einem 8Bit Wert (0-255)
@@ -306,7 +299,13 @@ ErrCode generateHeatmap(void* heatmapImages)noexcept{
     Image* images = (Image*)heatmapImages;
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){
         for(DWORD j=0; j < images[i].width*images[i].height; ++j) images[i].data[j] = 0;
-        interpolateTriangulation(images, i, datapoints, datapointsCount);
+        DWORD count = sizeHashmap(datapoints);
+        Datapoint* points = new Datapoint[count];
+        void* pointsPointer[count];
+        getAllElementsHashmap(datapoints, pointsPointer);
+        for(DWORD i=0; i < count; ++i) points[i] = *(Datapoint*)pointsPointer[i];
+        interpolateTriangulation(images, i, points, count);
+        delete[] points;
     }
     return SUCCESS;
 }
@@ -348,7 +347,7 @@ ErrCode iterateHeatmaps(void* buttonPtr)noexcept{
 }
 
 ErrCode clearHeatmaps(void*)noexcept{
-    datapointsCount = 0;
+    clearHashmap(datapoints);
     return SUCCESS;
 }
 
@@ -376,14 +375,22 @@ ErrCode saveHeatmaps(void*)noexcept{
     std::cout << filename << std::endl;
     file.open(filename, std::ios::out);
     if(!file.is_open()) return OPEN_FILE;
-    file << datapointsCount << '\n';
-    for(DWORD i=0; i < datapointsCount; ++i){
-        file << datapoints[i].x << ' ';
-        file << datapoints[i].y << ' ';
-        for(BYTE j=0; j < HEATMAPCOUNT; ++j) file << (int)datapoints[i].rssi[j] << ' ';
+
+    DWORD count = sizeHashmap(datapoints);
+    Datapoint* points = new Datapoint[count];
+    void* pointsPointer[count];
+    getAllElementsHashmap(datapoints, pointsPointer);
+    for(DWORD i=0; i < count; ++i) points[i] = *(Datapoint*)pointsPointer[i];
+
+    file << count << '\n';
+    for(DWORD i=0; i < count; ++i){
+        file << points[i].x << ' ';
+        file << points[i].y << ' ';
+        for(BYTE j=0; j < HEATMAPCOUNT; ++j) file << (int)points[i].rssi[j] << ' ';
         file << '\n';
     }
     file.close();
+    delete[] points;
     return SUCCESS;
 }
 
@@ -395,15 +402,18 @@ ErrCode loadHeatmaps(void*)noexcept{
     std::string filename = "heatmap";
     file.open(filename, std::ios::in);
     if(!file.is_open()) return OPEN_FILE;
-    file >> datapointsCount;
-    for(DWORD i=0; i < datapointsCount; ++i){
-        file >> datapoints[i].x;
-        file >> datapoints[i].y;
+    DWORD count;
+    file >> count;
+    for(DWORD i=0; i < count; ++i){
+        Datapoint* point = new Datapoint;
+        file >> point->x;
+        file >> point->y;
         for(BYTE j=0; j < HEATMAPCOUNT; ++j){
             int val;
             file >> val;
-            datapoints[i].rssi[j] = val;
+            point->rssi[j] = val;
         }
+        insertHashmap(datapoints, coordinatesToKey(point->x, point->y), point);
     }
     file.close();
     return SUCCESS;
@@ -425,10 +435,13 @@ ErrCode decSearchRadius(void*)noexcept{
 /// @return Zahl zwischen 1 (sehr gute Qualität) und 0 (sehr schlechte Qualität)
 float getHeatmapQuality(BYTE idx)noexcept{
     DWORD total = 0;
-    for(DWORD i=0; i < datapointsCount; ++i){
-        total += datapoints[i].rssi[idx]-MINDB;
+    HashmapIterator iterator = {};
+    iterator = iterateHashmap(datapoints, iterator);
+    while(iterator.valid){
+        total += ((Datapoint*)iterator.data)->rssi[idx]-MINDB;
+        iterator = iterateHashmap(datapoints, iterator);
     }
-    return 1.f - (float)total/(MAXDB-MINDB)/datapointsCount;
+    return 1.f - (float)total/(MAXDB-MINDB)/sizeHashmap(datapoints);
     // float x = 1.f - (float)total/(MAXDB-MINDB)/datapointsCount;
     // float x1 = (x-1);
     // return -(x1*x1)+1;
@@ -491,12 +504,13 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
     destroyDistanceMap(map);
 }
 
-INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){
+INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){    
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0){
         return ErrCheck(GENERIC_ERROR, "WSAstartup");
     }
     
+    if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(dataServer, 4985), "Daten UDP Server erstellen") != SUCCESS) return -1;
     if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
@@ -621,8 +635,11 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             dataPointsImage.width = DATAPOINTRESOLUTIONX;
             dataPointsImage.height = DATAPOINTRESOLUTIONY;
             dataPointsImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
-            for(DWORD i=0; i < datapointsCount; ++i){
-                Datapoint& dataPoint = datapoints[i];
+            HashmapIterator iterator = {};
+            iterator = iterateHashmap(datapoints, iterator);
+            while(iterator.valid){
+                Datapoint& dataPoint = *(Datapoint*)(iterator.data);
+                iterator = iterateHashmap(datapoints, iterator);
                 BYTE color = dataPoint.rssi[showHeatmapIdx];
                 color = rssiToColorComponent(color);
                 dataPointsImage.data[dataPoint.y*DATAPOINTRESOLUTIONX+dataPoint.x] = RGBA(color, 255-color, 0);
@@ -645,11 +662,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         drawButtons(window, *font, buttons, sizeof(buttons)/sizeof(Button));
         int selectedStrength = 90;
-        for(DWORD i=0; i < datapointsCount; ++i){
-            if(datapoints[i].x == gx && datapoints[i].y == gy){
-                selectedStrength = datapoints[i].rssi[showHeatmapIdx];
-                break;
-            }
+        Datapoint* point = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(gx, gy));
+        if(point){
+            selectedStrength = point->rssi[showHeatmapIdx];
+            break;
         }
         DWORD offset = drawFontString(window, *font, longToString(-selectedStrength), 10/window->pixelSize, 10/window->pixelSize);
         drawFontString(window, *font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 10/window->pixelSize+offset+16/window->pixelSize, 10/window->pixelSize);
@@ -663,6 +679,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             if(x >= 0){
                 gx = (float)x/(window->windowWidth/window->pixelSize-200/window->pixelSize)*(DATAPOINTRESOLUTIONX);
                 gy = (float)y/(window->windowHeight/window->pixelSize)*(DATAPOINTRESOLUTIONY);
+                delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
             }
         }
         
@@ -683,6 +700,14 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     getStrengthThread.join();
     getDataThread.join();
+
+    HashmapIterator iter = {};
+    iter = iterateHashmap(datapoints, iter);
+    while(iter.valid){
+        delete (Datapoint*)iter.data;
+        iter = iterateHashmap(datapoints, iter);
+    }
+    destroyHashmap(datapoints);
 
     destroyUDPServer(mainServer);
     destroyUDPServer(dataServer);
