@@ -10,7 +10,9 @@
 
     Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
 
-    Eine Datenstrukur, um auf die Datenpunkte per x und y Wert zuzugreifen
+    Routerdaten und IP an den esp32 senden können
+
+    Datenpunkte RSSI ANzahl "dynamisch" machen
 */
 
 Window* window = nullptr;
@@ -34,7 +36,6 @@ enum MODES{
     ENDOFMODES
 };
 
-#define DATAPOINTCOUNT 100
 struct Datapoint{
     WORD x;
     WORD y;
@@ -168,9 +169,9 @@ void drawInterpolatedTriangle(Image& image, WORD x1, WORD y1, WORD x2, WORD y2, 
             float m2 = ((x3-x)*(y1-y)-(x1-x)*(y3-y))*totalArea;     //TODO können inkremental in jeder Schleife berechnet werden
             float m3 = 1-m1-m2;
             if(m1 >= 0 && m2 >= 0 && m3 >= 0){   //TODO Funktioniert noch nicht ganz korrekt, vllt kann man float Zahlen vermeiden?
-                // m1 = m1*m1;
-                // m2 = m2*m2;
-                // m3 = m3*m3;
+                // m1 = std::pow(m1, 1.1f);
+                // m2 = std::pow(m2, 1.1f);
+                // m3 = std::pow(m3, 1.1f);
                 BYTE value = val1*m1 + val2*m2 + val3*m3;
                 image.data[y*image.width+x] = RGBA(value, 255-value, 0);
             }
@@ -241,10 +242,11 @@ struct DatapointTriangle{
 };
 
 //TODO O(n^4) brute force Delauney Umsetzung, es gibt deutlich effizientere Methoden
+//TODO man könnte auch einfach alle Heatmaps berechnen, da man dann nicht die Triangulation immer neu berechnen muss
 
 // #define VISUALIZETRIANGULATION
 
-/// @brief Trianguliert eine Punktewolke von Datapoints, interpoliert die Werte dazwischen und füllt damit das Image aus heatmaps am Index heatmapIdx
+/// @brief Trianguliert eine Punktewolke von Datenpunkten, interpoliert die Werte dazwischen und füllt damit das Image aus heatmaps am Index heatmapIdx
 /// @param heatmaps Ein Array aus Images
 /// @param heatmapIdx Das Image aus heatmaps das beschrieben werden soll
 /// @param datapoints Die Datenpunkte
@@ -718,7 +720,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         Datapoint* point = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(gx, gy));
         if(point){
             selectedStrength = point->rssi[showHeatmapIdx];
-            break;
         }
         DWORD offset = drawFontString(window, *font, longToString(-selectedStrength), 10/window->pixelSize, 10/window->pixelSize);
         drawFontString(window, *font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 10/window->pixelSize+offset+16/window->pixelSize, 10/window->pixelSize);
