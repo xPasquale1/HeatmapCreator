@@ -12,7 +12,12 @@
 
     Routerdaten und IP an den esp32 senden können
 
-    Datenpunkte RSSI ANzahl "dynamisch" machen
+    Datenpunkte RSSI Anzahl "dynamisch" machen
+    Idee ist eine fest definierte Anzahl an RSSI-Werten auslesen zu wollen, sollte es zu wenige/viele geben,
+    werden diese mit 0 befüllt, daher sollte jeder Datenpunkt die Werte + Anzahl speichern. In der Applikation
+    kann man dann die Anzahl der RSSI Werte angeben. An die meisten Funktionen sollte dann ein Parameter
+    übergeben werden, welches angibt, wie viele RSSI-Werte von den Datenpunkten ausgelesen werden sollen. Das
+    Parameter sollte dann eine globale Variable sein, die zur Laufzeit verändert werden kann.
 */
 
 Window* window = nullptr;
@@ -37,15 +42,16 @@ enum MODES{
 };
 
 struct Datapoint{
-    WORD x;
-    WORD y;
-    BYTE rssi[HEATMAPCOUNT];
+    WORD x = 0;
+    WORD y = 0;
+    BYTE rssi[HEATMAPCOUNT];    //TODO BYTE* und zur Laufzeit allokieren und den max. Wert in rssiCount merken
+    BYTE rssiCount = 0;
 };
 static Hashmap datapoints;
 #define coordinatesToKey(x, y)((x<<16)|y)
 
 static BYTE mode = 0;
-static DWORD searchColor[HEATMAPCOUNT]{0};
+static DWORD searchColor[HEATMAPCOUNT]{0};  //TODO auch zur Laufzeit allokieren und durch das Applikationsinterface veränderbar machen
 static bool running = true;
 static WORD gx = 0;
 static WORD gy = 0;
@@ -66,43 +72,6 @@ void changeDatapoint(BYTE* rssi, WORD x, WORD y){
 //Konvertiert einen RSSI-Wert (in der Range MINDB-MAXDB) zu einem 8Bit Wert (0-255)
 BYTE rssiToColorComponent(BYTE rssi)noexcept{
     return ((rssi-MINDB)*255)/(MAXDB-MINDB);
-}
-
-#define SPOTCOUNT 37
-static BYTE spotCount = 0;
-static SWORD spotBuffer[HEATMAPCOUNT*SPOTCOUNT]{0};
-static SBYTE spotMin[HEATMAPCOUNT] = {-20, -20, -20};
-static SBYTE spotMax[HEATMAPCOUNT] = {-90, -90, -90};
-void processDataServer()noexcept{
-    char buffer[1024];
-    while(1){
-        if(!running) break;
-        int length = receiveUDPServer(dataServer, buffer, sizeof(buffer));
-        if(length != SOCKET_ERROR && buffer[0] == 2){
-            for(int i=1; i < length; ++i){
-                if(buffer[i] == 0) std::cout << "Messung hatte 0 Wert..." << std::endl;
-                spotBuffer[spotCount*HEATMAPCOUNT+(i-1)] = buffer[i];
-            }
-            spotCount++;
-            if(spotCount >= SPOTCOUNT){
-                SWORD avgRSSI[HEATMAPCOUNT]{};
-                for(BYTE i=0; i < SPOTCOUNT; ++i){
-                    for(BYTE j=0; j < HEATMAPCOUNT; ++j){
-                        avgRSSI[j] += spotBuffer[i*HEATMAPCOUNT+j];
-                        spotBuffer[i*HEATMAPCOUNT+j] = 0;
-                    }
-                }
-                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-                    SBYTE avgVal = avgRSSI[i]/SPOTCOUNT;
-                    if(avgVal < spotMin[i]) spotMin[i] = avgVal;
-                    if(avgVal > spotMax[i]) spotMax[i] = avgVal;
-                    std::cout << (int)avgVal << " | Min: " << (int)spotMin[i] << " - Max: " << (int)spotMax[i] << " - Delta: " << spotMax[i]-spotMin[i] << std::endl;
-                }
-                std::cout << "----" << std::endl;
-                spotCount = 0;
-            }
-        }
-    }
 }
 
 //TODO Fehler melden?
@@ -667,8 +636,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     std::thread getStrengthThread(processNetworkPackets);
 
-    std::thread getDataThread(processDataServer);
-
     Image distanceImage;
     distanceImage.width = INTERPOLATEDHEATMAPX;
     distanceImage.height = INTERPOLATEDHEATMAPY;
@@ -753,7 +720,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     destroyImage(distanceImage);
 
     getStrengthThread.join();
-    getDataThread.join();
 
     HashmapIterator iter = {};
     iter = iterateHashmap(datapoints, iter);

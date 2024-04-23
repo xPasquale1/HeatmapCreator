@@ -10,6 +10,15 @@ struct UDPServer{
     SOCKET socket;
 };
 
+enum MESSAGECODES{
+    SEND_POSITION_X,
+    SEND_POSITION_Y,
+    SEND_SIGNALSTRENGTH,
+    ADD_ROUTER,
+    SETSENDIP,
+    ACK
+};
+
 /// @brief Erstellt einen UDP Server auf dem Port port mit einem Timeout von timeoutMillis in Millisekunden für recv-Aufrufe und speichert alle Daten im server struct
 /// @param server Das UDP Server struct
 /// @param port Der Serverport
