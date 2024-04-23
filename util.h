@@ -370,7 +370,7 @@ struct HashmapIterator{
 	DWORD bucketIndex = 0;				//Der aktuelle "Bucket" Index
 };
 
-//Lässt den Iterator durch die Hashmap iterieren, falls der Iterator valid ist ist iterator.current != nullptr, sonst ist der Iterator invalide
+//Lässt den Iterator durch die Hashmap iterieren, falls der Iterator valid ist ist iterator.valid == true, sonst ist der Iterator invalide
 HashmapIterator& iterateHashmap(Hashmap map, HashmapIterator& iterator)noexcept{
 	while(1){
 		if(iterator.bucketIndex >= map.tableSize){

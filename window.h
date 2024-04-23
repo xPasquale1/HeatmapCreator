@@ -1296,3 +1296,5 @@ inline void createCube(triangle* tri, DWORD& count, float x, float y, float z, f
 	count += 12;
 	return;
 }
+
+//TODO opengl

@@ -18,6 +18,8 @@
     kann man dann die Anzahl der RSSI Werte angeben. An die meisten Funktionen sollte dann ein Parameter
     übergeben werden, welches angibt, wie viele RSSI-Werte von den Datenpunkten ausgelesen werden sollen. Das
     Parameter sollte dann eine globale Variable sein, die zur Laufzeit verändert werden kann.
+
+    Man sollte die Auflösung der Messpunkte festlegen können
 */
 
 Window* window = nullptr;
@@ -454,21 +456,39 @@ ErrCode decSearchRadius(void*)noexcept{
     return SUCCESS;
 }
 
+//TODO implementieren
+ErrCode incRouterCount()noexcept{
+    return SUCCESS;
+}
+ErrCode decRouterCount()noexcept{
+    return SUCCESS;
+}
+
+//TODO Qualität berechnen kann bestimmt noch besser gehen
+
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
 /// @param idx Der RSSI-Index der Datenpunkte
 /// @return Zahl zwischen 1 (sehr gute Qualität) und 0 (sehr schlechte Qualität)
 float getHeatmapQuality(BYTE idx)noexcept{
-    DWORD total = 0;
+    if(sizeHashmap(datapoints) < 1) return 0;
+    float avg = 0;
+    BYTE minVal = 255;
+    BYTE maxVal = 0;
     HashmapIterator iterator = {};
     iterator = iterateHashmap(datapoints, iterator);
     while(iterator.valid){
-        total += ((Datapoint*)iterator.data)->rssi[idx]-MINDB;
+        BYTE val = ((Datapoint*)iterator.data)->rssi[idx]-MINDB;
+        avg += val;
+        if(val < minVal) minVal = val;
+        if(val > maxVal) maxVal = val;
         iterator = iterateHashmap(datapoints, iterator);
     }
-    return 1.f - (float)total/(MAXDB-MINDB)/sizeHashmap(datapoints);
-    // float x = 1.f - (float)total/(MAXDB-MINDB)/datapointsCount;
-    // float x1 = (x-1);
-    // return -(x1*x1)+1;
+    avg /= sizeHashmap(datapoints);
+    float midVal = (minVal + maxVal)/2.f;
+    float diff;
+    if(avg < midVal) diff = 1.f - (midVal-avg)/(midVal-minVal);
+    else diff = 1.f - (avg-midVal)/(maxVal-midVal);
+    return (1.f - (float)(maxVal-minVal)/(MAXDB-MINDB)) * diff;
 }
 
 struct DistanceMap{
