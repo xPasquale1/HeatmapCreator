@@ -25,7 +25,6 @@
 Window* window = nullptr;
 Font* font = nullptr;
 UDPServer mainServer;
-UDPServer dataServer;
 
 //TODO Annahme Signalstärke von -20dB bis -90dB
 #define MAXDB 90
@@ -556,7 +555,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    if(ErrCheck(createUDPServer(dataServer, 4985), "Daten UDP Server erstellen") != SUCCESS) return -1;
     if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     if(ErrCheck(createWindow(hInstance, 1200, 1000, 300, 100, 1, window, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
@@ -750,7 +748,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     destroyHashmap(datapoints);
 
     destroyUDPServer(mainServer);
-    destroyUDPServer(dataServer);
     WSACleanup();
     destroyFont(font);
     for(int i=0; i < HEATMAPCOUNT; ++i){

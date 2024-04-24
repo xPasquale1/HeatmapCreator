@@ -1297,4 +1297,5 @@ inline void createCube(triangle* tri, DWORD& count, float x, float y, float z, f
 	return;
 }
 
-//TODO opengl
+//TODO opengl 1.1 sollte reichen
+#include <GL/gl.h>
