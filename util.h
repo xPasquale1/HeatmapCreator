@@ -410,3 +410,115 @@ void getAllElementsHashmap(Hashmap& map, void** buffer)noexcept{
 
 //Wie viele Pointer sich in der Hashmap befinden
 DWORD sizeHashmap(Hashmap& map)noexcept{return map.size;}
+
+
+struct TableOffset{
+	DWORD tag;
+	DWORD offset;
+};
+
+WORD swapEndian(WORD* val)noexcept{
+    BYTE* out = (BYTE*)val;
+    return (out[0]<<8) | out[1];
+}
+
+SWORD swapEndian(SWORD* val)noexcept{
+    BYTE* out = (BYTE*)val;
+    return (out[0]<<8) | out[1];
+}
+
+DWORD swapEndian(DWORD* val)noexcept{
+    BYTE* out = (BYTE*)val;
+    return (out[0]<<24) | (out[1]<<16) | (out[2]<<8) | out[0];
+}
+
+constexpr DWORD tableStringToCode(const char* name)noexcept{
+    return (name[3]<<24) | (name[2]<<16) | (name[1]<<8) | name[0];
+}
+
+bool flagBitSet(BYTE val, BYTE pos){
+	return (val>>pos)&1;
+}
+
+ErrCode loadTTF(const char* name){
+	std::fstream file;
+    file.open(name, std::ios::in | std::ios::binary);
+    if(!file.is_open()) return FILE_NOT_FOUND;
+    file.seekp(0, std::ios::end);
+    std::cout << "Dateigröße in Bytes: " << file.tellp() << std::endl;
+
+	Hashmap map;
+	createHashmap(map, 100);
+
+    WORD numTables;
+    file.seekg(4, std::ios::beg);
+    file.read((char*)&numTables, 2);
+    numTables = swapEndian(&numTables);
+    std::cout << "Tabellen Anzahl: " << numTables << std::endl;
+	TableOffset tableData[numTables];
+    WORD seekOffset = 12;
+    for(WORD i=0; i < numTables; ++i){
+        file.seekg(seekOffset, std::ios::beg);
+        DWORD tag;
+        file.read((char*)&tag, 4);
+        file.seekg(seekOffset+8, std::ios::beg);
+        DWORD offset;
+        file.read((char*)&offset, 4);
+        offset = swapEndian(&offset);
+		tableData[i].offset = offset;
+		tableData[i].tag = tag;
+		insertHashmap(map, tag, &tableData[i]);
+        seekOffset += 16;
+    }
+
+	TableOffset* glyf = (TableOffset*)searchHashmap(map, tableStringToCode("glyf"));
+	if(glyf == nullptr){
+		destroyHashmap(map);
+		return GENERIC_ERROR;
+	}
+	std::cout << "Glyf offset: " << glyf->offset << std::endl;
+    file.seekg(glyf->offset, std::ios::beg);
+
+	SWORD numberOfContours;
+	file.read((char*)&numberOfContours, 2);
+	numberOfContours = swapEndian(&numberOfContours);
+	std::cout << numberOfContours << std::endl;
+	SWORD xMin, yMin, xMax, yMax;
+	file.read((char*)&xMin, 2);
+	xMin = swapEndian(&xMin);
+	file.read((char*)&yMin, 2);
+	yMin = swapEndian(&yMin);
+	file.read((char*)&xMax, 2);
+	xMax = swapEndian(&xMax);
+	file.read((char*)&yMax, 2);
+	yMax = swapEndian(&yMax);
+	WORD endPtsOfContours[numberOfContours];
+	for(SWORD i=0; i < numberOfContours; ++i){
+		file.read((char*)&endPtsOfContours[i], 2);
+		endPtsOfContours[i] = swapEndian(&endPtsOfContours[i]);
+		std::cout << endPtsOfContours[i] << " ";
+	} std::cout << std::endl;
+	DWORD numPoints = endPtsOfContours[numberOfContours-1] + 1;
+	WORD instructionLength;
+	file.read((char*)&instructionLength, 2);
+	instructionLength = swapEndian(&instructionLength);
+	BYTE instructions[instructionLength];
+	for(WORD i=0; i < instructionLength; ++i){
+		file.read((char*)&instructions[i], 1);
+	}
+	BYTE flags[numPoints];
+	for(SWORD i=0; i < numPoints; ++i){
+		file.read((char*)&flags[i], 1);
+		if(flagBitSet(flags[i], 3)){
+			BYTE flag = flags[i];
+			file.read((char*)&flags[i+1], 1);
+			std::cout << "Skip: " << (int)flags[i+1] << std::endl;
+			for(BYTE j=0; j < flags[i+1]; ++j){
+				flags[++i] = flag;
+			}
+		}
+	}
+
+	destroyHashmap(map);
+	return SUCCESS;
+}
