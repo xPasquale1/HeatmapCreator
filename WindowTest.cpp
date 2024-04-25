@@ -16,7 +16,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     for(WORD i=0; i < glyphStorage.glyphCount; ++i){
         Glyph& glyph = glyphStorage.glyphs[i];
         for(WORD j=0; j < glyph.numPoints; ++j){
-            glyph.yCoords[j] = glyph.yMax-glyph.yCoords[j]+glyph.yMin;
+            glyph.yCoords[j] = (glyph.yMax-glyph.yCoords[j])+glyph.yMin;
             glyph.xCoords[j] /= 5;
             glyph.yCoords[j] /= 5;
         }

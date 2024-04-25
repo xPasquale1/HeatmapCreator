@@ -288,6 +288,23 @@ ErrCode loadTTF(const char* name){
         }
     }
 
+    TableOffset* cmap =(TableOffset*)searchHashmap(map, tableStringToCode("cmap"));
+    if(cmap == nullptr){
+        destroyHashmap(map);
+        file.close();
+        return GENERIC_ERROR;
+    }
+    file.seekg(cmap->offset, std::ios::beg);
+    file.seekg(2, std::ios::cur);   //Skippe Version
+    WORD numberSubtables;
+    file.read((char*)&numberSubtables, 2);
+    numberSubtables = swapEndian(&numberSubtables);
+    for(WORD i=0; i < numberSubtables; ++i){
+        WORD platformID;
+        file.read((char*)&platformID, 2);
+        platformID = swapEndian(&platformID);
+    }
+
 	destroyHashmap(map);
 	file.close();
 	return SUCCESS;
