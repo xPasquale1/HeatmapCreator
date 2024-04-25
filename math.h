@@ -63,3 +63,5 @@ inline constexpr float interpolateLinear(float valA, float valB, fvec2 posA, fve
 	float valDiff = valB-valA;
 	return valA + (valDiff*(posC.x-posA.x)+valDiff*(posC.y-posA.y))/((posB.x-posA.x)+(posB.y-posA.y));
 }
+
+SWORD sign(SWORD x){return (x > 0) - (x < 0);}

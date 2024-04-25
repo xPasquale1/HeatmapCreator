@@ -62,6 +62,8 @@ PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
 PFNGLUNIFORM1IPROC glUniform1i;
 PFNGLUNIFORM4IPROC glUniform4i;
 PFNGLUNIFORM4FPROC glUniform4f;
+PFNGLUNIFORM1FPROC glUniform1f;
+PFNGLUNIFORM2FPROC glUniform2f;
 
 void init(){
 	glGetError = (PFNGLGETERRORPROC)loadGlFunction("glGetError");
@@ -107,6 +109,8 @@ void init(){
 	glUniform1i = (PFNGLUNIFORM1IPROC)loadGlFunction("glUniform1i");
 	glUniform4i = (PFNGLUNIFORM4IPROC)loadGlFunction("glUniform4i");
 	glUniform4f = (PFNGLUNIFORM4FPROC)loadGlFunction("glUniform4f");
+	glUniform1f = (PFNGLUNIFORM1FPROC)loadGlFunction("glUniform1f");
+	glUniform2f = (PFNGLUNIFORM2FPROC)loadGlFunction("glUniform2f");
 }
 
 #define INVALIDHANDLEERRORS
@@ -308,8 +312,8 @@ LRESULT CALLBACK default_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 			break;
 		}
 		case WM_MOUSEMOVE:{
-			mouse.pos.x = GET_X_LPARAM(lParam);
-			mouse.pos.y = GET_Y_LPARAM(lParam);
+			mouse.x = GET_X_LPARAM(lParam);
+			mouse.y = GET_Y_LPARAM(lParam);
 			break;
 		}
 	}
@@ -513,11 +517,119 @@ ErrCode drawImage(Window& window, Image& image, WORD x1, WORD y1, WORD x2, WORD 
 	return SUCCESS;
 }
 
+ErrCode drawLine(Window& window, WORD x1, WORD y1, WORD x2, WORD y2, WORD width, DWORD color)noexcept{
+	const GLchar vertexShaderCode[] = 
+	"#version 330\n"
+	"layout(location=0) in vec2 pos;"
+	"layout(location=1) in vec2 tex;"
+	"out vec2 texCoord;"
+	"void main(){"
+	"	texCoord = tex;"
+	"   gl_Position = vec4(pos, 1.0, 1.0);"
+	"}";
+	const GLchar fragmentShaderCode[] = 
+	"#version 330\n"
+	"out vec4 fragColor;"
+	"in vec2 texCoord;"
+	"uniform vec4 color;"
+	"uniform vec2 pos1;"
+	"uniform vec2 pos2;"
+	"uniform int lineWidth;"
+	"void main(){"
+	"	vec2 dir = pos2-pos1;"
+	"	float proj = dir.x*(texCoord.x-pos1.x)+dir.y*(texCoord.y-pos1.y);"
+	"	float length = dir.x*dir.x+dir.y*dir.y;"
+	"	float d = proj/length;"
+	"	d = clamp(d, 0.f, 1.f);"
+	"	vec2 projPt = pos1+dir*d;"
+	"	vec2 diff = texCoord-projPt;"
+	"	if(length(diff) > lineWidth) discard;"
+	"   fragColor = vec4(color/255);"
+	"}";
+
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
+    GLuint program = glCreateProgram();
+    GLuint vertexShader = 0;
+    GLuint fragmentShader = 0;
+    if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) GENERIC_ERROR;
+    glAttachShader(program, fragmentShader);
+    glAttachShader(program, vertexShader);
+    glLinkProgram(program);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+	float xMin = x1;
+	if(x2 < x1) xMin = x2;
+	xMin -= width;
+	float xMax = x1;
+	if(x2 > x1) xMax = x2;
+	xMax += width;
+	float yMin = y1;
+	if(y2 < y1) yMin = y2;
+	yMin -= width;
+	float yMax = y1;
+	if(y2 > y1) yMax = y2;
+	yMax += width;
+	float startX = (float)xMin/window.windowWidth*2-1;
+	float startY = (float)(window.windowHeight-yMin)/window.windowHeight*2-1;
+	float endX = (float)xMax/window.windowWidth*2-1;
+	float endY = (float)(window.windowHeight-yMax)/window.windowHeight*2-1;
+
+    float vertices[] = {
+        startX, endY,
+        endX, endY,
+        endX, startY,
+        endX, startY,
+        startX, startY,
+        startX, endY
+    };
+    float texCoords[] = {
+        (float)xMin, (float)yMax,
+        (float)xMax, (float)yMax,
+        (float)xMax, (float)yMin,
+        (float)xMax, (float)yMin,
+        (float)xMin, (float)yMin,
+        (float)xMin, (float)yMax
+    };
+    GLuint VBOPos, VBOTex, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBOPos);
+    glGenBuffers(1, &VBOTex);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOTex);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(texCoords), texCoords, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glUseProgram(program);
+
+    glUniform4f(glGetUniformLocation(program, "color"), R(color), G(color), B(color), A(color));
+	glUniform2f(glGetUniformLocation(program, "pos1"), x1, y1);
+	glUniform2f(glGetUniformLocation(program, "pos2"), x2, y2);
+	glUniform1i(glGetUniformLocation(program, "lineWidth"), width);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBOPos);
+	glDeleteBuffers(1, &VBOTex);
+	glDeleteProgram(program);
+	return SUCCESS;
+}
+
 ErrCode drawRectangle(Window& window, WORD x, WORD y, WORD dx, WORD dy, DWORD color)noexcept{
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
 	"layout(location=0) in vec2 pos;"
-	"out vec2 texCoord;"
 	"void main(){"
 	"   gl_Position = vec4(pos, 1.0, 1.0);"
 	"}";
@@ -554,14 +666,6 @@ ErrCode drawRectangle(Window& window, WORD x, WORD y, WORD dx, WORD dy, DWORD co
         startX, startY,
         startX, endY
     };
-    float texCoords[] = {
-        0.f, 1.f,
-        1.f, 1.f,
-        1.f, 0.f,
-        1.f, 0.f,
-        0.f, 0.f,
-        0.f, 1.f
-    };
     GLuint VBOPos, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBOPos);
@@ -581,6 +685,90 @@ ErrCode drawRectangle(Window& window, WORD x, WORD y, WORD dx, WORD dy, DWORD co
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
+	glDeleteProgram(program);
+	return SUCCESS;
+}
+
+ErrCode drawCircle(Window& window, WORD x, WORD y, WORD rad, DWORD color){
+	const GLchar vertexShaderCode[] = 
+	"#version 330\n"
+	"layout(location=0) in vec2 pos;"
+	"layout(location=1) in vec2 tex;"
+	"out vec2 texCoord;"
+	"void main(){"
+	"	texCoord = tex;"
+	"   gl_Position = vec4(pos, 1.0, 1.0);"
+	"}";
+	const GLchar fragmentShaderCode[] = 
+	"#version 330\n"
+	"out vec4 fragColor;"
+	"in vec2 texCoord;"
+	"uniform vec4 color;"
+	"void main(){"
+	"	if(length(texCoord) > 1) discard;"
+	"   fragColor = vec4(color/255);"
+	"}";
+
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
+    GLuint program = glCreateProgram();
+    GLuint vertexShader = 0;
+    GLuint fragmentShader = 0;
+    if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) GENERIC_ERROR;
+    glAttachShader(program, fragmentShader);
+    glAttachShader(program, vertexShader);
+    glLinkProgram(program);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+	float startX = (float)(x-rad)/window.windowWidth*2-1;
+	float startY = (float)(window.windowHeight-(y-rad))/window.windowHeight*2-1;
+	float endX = (float)(x+rad)/window.windowWidth*2-1;
+	float endY = (float)(window.windowHeight-(y+rad))/window.windowHeight*2-1;
+
+    float vertices[] = {
+        startX, endY,
+        endX, endY,
+        endX, startY,
+        endX, startY,
+        startX, startY,
+        startX, endY
+    };
+    float texCoords[] = {
+        -1.f, 1.f,
+        1.f, 1.f,
+        1.f, -1.f,
+        1.f, -1.f,
+        -1.f, -1.f,
+        -1.f, 1.f
+    };
+    GLuint VBOPos, VBOTex, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBOPos);
+    glGenBuffers(1, &VBOTex);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOTex);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(texCoords), texCoords, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+    glUseProgram(program);
+
+    glUniform4f(glGetUniformLocation(program, "color"), R(color), G(color), B(color), A(color));
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBOPos);
+	glDeleteBuffers(1, &VBOTex);
 	glDeleteProgram(program);
 	return SUCCESS;
 }
