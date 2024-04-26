@@ -20,7 +20,6 @@ void drawChar(Window& window, Font& font, BYTE c, WORD xOffset, WORD yOffset){
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){
     Window window;
-    Window window2;
     if(ErrCheck(createWindow(window, hInstance, 1000, 1000, 0, 0, 1, "Test-Fenster1"), "Fenster öffnen") != SUCCESS) return -1;
     init();
 
@@ -30,11 +29,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     Font font;
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
-    std::cout << font.yMax << " " << font.yMin << std::endl;
     for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
         Glyph& glyph = font.glyphStorage.glyphs[i];
         for(WORD j=0; j < glyph.numPoints; ++j){
-            // glyph.yCoords[j] = glyph.yMax-glyph.yCoords[j];
+            // glyph.yCoords[j] = glyph.yMax-glyph.yCoords[j]+glyph.yMin;
             // glyph.xCoords[j] = (glyph.xCoords[j]*128)/(glyph.xMax-glyph.xMin);
             // glyph.yCoords[j] = (glyph.yCoords[j]*128)/(glyph.yMax-glyph.yMin);
             glyph.xCoords[j] /= 10;
@@ -42,10 +40,22 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         }
     }
 
-    BYTE g = 0;
+    static bool LmbPressed = false;
     while(1){
         getMessages(window);
         if(getWindowFlag(window, WINDOW_CLOSE)) break;
+
+        if(getButton(mouse, MOUSE_LMB)){
+            if(LmbPressed == false){
+                for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
+                    Glyph& glyph = font.glyphStorage.glyphs[i];
+                    for(WORD j=0; j < glyph.numPoints; ++j){
+                        glyph.yCoords[j] = (glyph.yMax/10)-glyph.yCoords[j]+(glyph.yMin/10);
+                    }
+                }
+            }
+            LmbPressed = true;
+        }else LmbPressed = false;
 
         clearWindow(window);
 
@@ -53,10 +63,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         
         char text[] = "The q";
         for(int i=0; i < strlen(text); ++i){
+            drawLine(window, 0, 100, window.windowWidth, 100, 1, RGBA(255, 255, 255));
             drawChar(window, font, text[i], xOffset, 100);
             Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
+            drawLine(window, (glyph.xMin/10)+xOffset, 100+(glyph.yMin/10), (glyph.xMax/10)+xOffset, 100+(glyph.yMin/10), 1, RGBA(0, 255, 0));
+            drawLine(window, (glyph.xMin/10)+xOffset, 100+(glyph.yMax/10), (glyph.xMax/10)+xOffset, 100+(glyph.yMax/10), 1, RGBA(0, 255, 0));
             // xOffset += 55;
-            xOffset += 110;
+            xOffset += 130;
         }
 
         drawWindow(window);
