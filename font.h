@@ -30,12 +30,36 @@ bool flagBitSet(DWORD val, BYTE pos){
 	return (val>>pos)&1;
 }
 
-void readCoordinate(std::fstream& file, SWORD* coords, BYTE* flags, BYTE flagBitOffset, SWORD numPoints){
+BYTE readUint8(std::fstream& file){
+    BYTE ret;
+    file.read((char*)&ret, 1);
+    return ret;
+}
+
+WORD readUint16(std::fstream& file){
+    WORD ret;
+    file.read((char*)&ret, 2);
+    return swapEndian(&ret);
+}
+
+SWORD readInt16(std::fstream& file){
+    SWORD ret;
+    file.read((char*)&ret, 2);
+    return swapEndian(&ret);
+}
+
+DWORD readUint32(std::fstream& file){
+    DWORD ret;
+    file.read((char*)&ret, 4);
+    return swapEndian(&ret);
+}
+
+void readCoordinate(std::fstream& file, SWORD* coords, BYTE* flags, BYTE flagBitOffset, SWORD numPoints)noexcept{
 	SWORD prevVal = 0;
 	for(SWORD i=0; i < numPoints; ++i){
 		if(flagBitSet(flags[i], 1+flagBitOffset)){
 			BYTE tmp;
-			file.read((char*)&tmp, 1);
+			tmp = readUint8(file);
 			coords[i] = tmp;
 			if(!flagBitSet(flags[i], 4+flagBitOffset)) coords[i] *= -1;
 		}else{
@@ -43,8 +67,7 @@ void readCoordinate(std::fstream& file, SWORD* coords, BYTE* flags, BYTE flagBit
 				coords[i] = prevVal;
 				continue;
 			}
-			file.read((char*)&coords[i], 2);
-			coords[i] = swapEndian(&coords[i]);
+			coords[i] = readInt16(file);
 		}
 		coords[i] = prevVal + coords[i];
 		prevVal = coords[i];
@@ -63,7 +86,7 @@ struct Glyph{
 	WORD* endOfContours = nullptr;
 };
 
-void createGlyph(Glyph& glyph, SWORD numPoints, SWORD* xCoords, SWORD* yCoords, SWORD xMin, SWORD yMin, SWORD xMax, SWORD yMax, SWORD numContours, WORD* endOfContours){
+void createGlyph(Glyph& glyph, SWORD numPoints, SWORD* xCoords, SWORD* yCoords, SWORD xMin, SWORD yMin, SWORD xMax, SWORD yMax, SWORD numContours, WORD* endOfContours)noexcept{
 	glyph.numPoints = numPoints;
 	glyph.xCoords = new SWORD[numPoints];
 	glyph.yCoords = new SWORD[numPoints];
@@ -82,7 +105,7 @@ void createGlyph(Glyph& glyph, SWORD numPoints, SWORD* xCoords, SWORD* yCoords, 
 	}
 }
 
-void destroyGlyph(Glyph& glyph){
+void destroyGlyph(Glyph& glyph)noexcept{
 	glyph.numPoints = 0;
 	delete[] glyph.xCoords;
 	delete[] glyph.yCoords;
@@ -98,12 +121,12 @@ struct GlyphStorage{
     Glyph* glyphs = nullptr;
 };
 
-void createGlyphStorage(GlyphStorage& storage, WORD glyphCount){
+void createGlyphStorage(GlyphStorage& storage, WORD glyphCount)noexcept{
     storage.glyphCount = glyphCount;
     storage.glyphs = new Glyph[glyphCount];
 }
 
-void destroyGlyphStorage(GlyphStorage& storage){
+void destroyGlyphStorage(GlyphStorage& storage)noexcept{
     for(WORD i=0; i < storage.glyphCount; ++i){
         destroyGlyph(storage.glyphs[i]);
     }
@@ -111,41 +134,34 @@ void destroyGlyphStorage(GlyphStorage& storage){
     storage.glyphs = nullptr;
 }
 
-void readSimpleGlyph(std::fstream& file, Glyph& glyph, SWORD numberOfContours){
+void readSimpleGlyph(std::fstream& file, Glyph& glyph, SWORD numberOfContours)noexcept{
     SWORD xMin, yMin, xMax, yMax;
-	file.read((char*)&xMin, 2);
-	xMin = swapEndian(&xMin);
-	std::cout << "xMin: " << xMin << std::endl;
-	file.read((char*)&yMin, 2);
-	yMin = swapEndian(&yMin);
-	std::cout << "yMin: " << yMin << std::endl;
-	file.read((char*)&xMax, 2);
-	xMax = swapEndian(&xMax);
-	std::cout << "xMax: " << xMax << std::endl;
-	file.read((char*)&yMax, 2);
-	yMax = swapEndian(&yMax);
-	std::cout << "yMax: " << yMax << std::endl;
+	xMin = readInt16(file);
+	// std::cout << "xMin: " << xMin << std::endl;
+	yMin = readInt16(file);
+	// std::cout << "yMin: " << yMin << std::endl;
+	xMax = readInt16(file);
+	// std::cout << "xMax: " << xMax << std::endl;
+	yMax = readInt16(file);
+	// std::cout << "yMax: " << yMax << std::endl;
 	WORD endPtsOfContours[numberOfContours];
 	for(SWORD i=0; i < numberOfContours; ++i){
-		file.read((char*)&endPtsOfContours[i], 2);
-		endPtsOfContours[i] = swapEndian(&endPtsOfContours[i]);
-		std::cout << endPtsOfContours[i] << " ";
-	} std::cout << std::endl;
+		endPtsOfContours[i] = readUint16(file);
+		// std::cout << endPtsOfContours[i] << " ";
+	}
+    // std::cout << std::endl;
 	DWORD numPoints = endPtsOfContours[numberOfContours-1] + 1;
-	WORD instructionLength;
-	file.read((char*)&instructionLength, 2);
-	instructionLength = swapEndian(&instructionLength);
+	WORD instructionLength = readUint16(file);
 	BYTE instructions[instructionLength];
 	for(WORD i=0; i < instructionLength; ++i){
-		file.read((char*)&instructions[i], 1);
+		instructions[i] = readUint8(file);
 	}
 	BYTE flags[numPoints];
 	for(DWORD i=0; i < numPoints; ++i){
-		file.read((char*)&flags[i], 1);
+		flags[i] = readUint8(file);
 		if(flagBitSet(flags[i], 3)){
 			BYTE flag = flags[i];
-            BYTE toSkip;
-			file.read((char*)&toSkip, 1);
+            BYTE toSkip = readUint8(file);
 			for(BYTE j=0; j < toSkip; ++j){
 				flags[++i] = flag;
 			}
@@ -161,12 +177,10 @@ void readSimpleGlyph(std::fstream& file, Glyph& glyph, SWORD numberOfContours){
 	createGlyph(glyph, numPoints, xCoords, yCoords, xMin, yMin, xMax, yMax, numberOfContours, endPtsOfContours);
 }
 
-void readCompoundGlyph(std::fstream& file){
+void readCompoundGlyph(std::fstream& file)noexcept{
     DWORD fileOffset = file.tellg();
     file.seekg(fileOffset+8, std::ios::beg);  //Skippe bounding Box
-    WORD flags;
-    file.read((char*)&flags, 2);
-    flags = swapEndian(&flags);
+    WORD flags = readUint16(file);
     WORD offset = 6;
     if(flagBitSet(flags, 0)){
         offset += 2;
@@ -175,8 +189,30 @@ void readCompoundGlyph(std::fstream& file){
     file.seekg(currentOffset+offset, std::ios::beg);  //Skippe den Rest
 }
 
-static GlyphStorage glyphStorage;
-ErrCode loadTTF(const char* name){
+struct HorMetric{
+    WORD advanceWidth;
+    SWORD leftSideBearing;
+};
+
+struct Font{
+    WORD asciiToGlyphMapping[256];
+    WORD unitsPerEm;
+    SWORD xMin;
+    SWORD yMin;
+    SWORD xMax;
+    SWORD yMax;
+    GlyphStorage glyphStorage;
+    WORD horMetricsCount = 0;
+    HorMetric* horMetrics = nullptr;
+};
+
+void destroyFont(Font& font){
+    destroyGlyphStorage(font.glyphStorage);
+    delete[] font.horMetrics;
+    font.horMetricsCount = 0;
+}
+
+ErrCode loadTTF(Font& font, const char* name)noexcept{
 	std::fstream file;
     file.open(name, std::ios::in | std::ios::binary);
     if(!file.is_open()) return FILE_NOT_FOUND;
@@ -186,10 +222,8 @@ ErrCode loadTTF(const char* name){
 	Hashmap map;
 	createHashmap(map, 100);
 
-    WORD numTables;
     file.seekg(4, std::ios::beg);
-    file.read((char*)&numTables, 2);
-    numTables = swapEndian(&numTables);
+    WORD numTables = readUint16(file);
     std::cout << "Tabellen Anzahl: " << numTables << std::endl;
 	TableOffset tableData[numTables];
     WORD seekOffset = 12;
@@ -198,9 +232,7 @@ ErrCode loadTTF(const char* name){
         DWORD tag;
         file.read((char*)&tag, 4);
         file.seekg(seekOffset+8, std::ios::beg);
-        DWORD offset;
-        file.read((char*)&offset, 4);
-        offset = swapEndian(&offset);
+        DWORD offset = readUint32(file);
 		tableData[i].offset = offset;
 		tableData[i].tag = tag;
 		insertHashmap(map, tag, &tableData[i]);
@@ -214,10 +246,15 @@ ErrCode loadTTF(const char* name){
         return GENERIC_ERROR;
     }
     file.seekg(head->offset, std::ios::beg);
-    file.seekg(50, std::ios::cur);  //Alle möglichen Headerdaten skippen
-    SWORD indexToLocFormat;
-    file.read((char*)&indexToLocFormat, 2);
-    indexToLocFormat = swapEndian(&indexToLocFormat);
+    file.seekg(18, std::ios::cur);  //Alle möglichen Headerdaten skippen
+    font.unitsPerEm = readUint16(file);
+    file.seekg(8, std::ios::cur);  //Mehr Headerdaten skippen
+    font.xMin = readInt16(file);
+    font.yMin = readInt16(file);
+    font.xMax = readInt16(file);
+    font.yMax = readInt16(file);
+    file.seekg(14, std::ios::cur);  //Noch mehr Headerdaten skippen
+    SWORD indexToLocFormat = readInt16(file);
 
 	TableOffset* maxp = (TableOffset*)searchHashmap(map, tableStringToCode("maxp"));
 	if(maxp == nullptr){
@@ -226,20 +263,13 @@ ErrCode loadTTF(const char* name){
 		return GENERIC_ERROR;
 	}
 	file.seekg(maxp->offset, std::ios::beg);
-	DWORD version;
-	file.read((char*)&version, 4);
-	WORD numGlyphs;
-	file.read((char*)&numGlyphs, 2);
-	numGlyphs = swapEndian(&numGlyphs);
+	DWORD version = readUint32(file);
+	WORD numGlyphs = readUint16(file);
 	std::cout << "Glyphenanzahl: " << numGlyphs << std::endl;
-    createGlyphStorage(glyphStorage, numGlyphs);
-	WORD maxPoints;
-	file.read((char*)&maxPoints, 2);
-	maxPoints = swapEndian(&maxPoints);
+    createGlyphStorage(font.glyphStorage, numGlyphs);
+	WORD maxPoints = readUint16(file);
 	std::cout << "Maximale Punkteanzahl: " << maxPoints << std::endl;
-	WORD maxContours;
-	file.read((char*)&maxContours, 2);
-	maxContours = swapEndian(&maxContours);
+	WORD maxContours = readUint16(file);
 	std::cout << "Maximale Konturenanzahl: " << maxContours << std::endl;
 
     TableOffset* loca = (TableOffset*)searchHashmap(map, tableStringToCode("loca"));
@@ -252,13 +282,10 @@ ErrCode loadTTF(const char* name){
     DWORD glyphOffsets[numGlyphs];
     for(WORD i=0; i <= numGlyphs; ++i){     //Ja laut Doku numGlyphs + 1
         if(indexToLocFormat==0){
-            WORD offset;
-            file.read((char*)&offset, 2);
-            offset = swapEndian(&offset);
+            WORD offset = readUint16(file);
             glyphOffsets[i] = offset*2;
         }else{
-            file.read((char*)&glyphOffsets[i], 4);
-            glyphOffsets[i] = swapEndian(&glyphOffsets[i]);
+            glyphOffsets[i] = readUint32(file);
         }
     }
 
@@ -270,20 +297,18 @@ ErrCode loadTTF(const char* name){
 	}
     file.seekg(glyf->offset, std::ios::beg);
 
-    for(WORD i=4; i < numGlyphs; ++i){
+    for(WORD i=0; i < numGlyphs; ++i){
         DWORD offsetForGlyph = glyphOffsets[i] + glyf->offset;
         file.seekg(offsetForGlyph, std::ios::beg);
-        SWORD numberOfContours;
-        file.read((char*)&numberOfContours, 2);
-        numberOfContours = swapEndian(&numberOfContours);
-        std::cout << "Konturenanzahl: " << numberOfContours << std::endl;
+        SWORD numberOfContours = readInt16(file);
+        // std::cout << "Konturenanzahl: " << numberOfContours << std::endl;
         if(numberOfContours > 0){
-            std::cout << "Simpler Glyph" << std::endl;
-            readSimpleGlyph(file, glyphStorage.glyphs[i], numberOfContours);
+            // std::cout << "Simpler Glyph" << std::endl;
+            readSimpleGlyph(file, font.glyphStorage.glyphs[i], numberOfContours);
         }else if(numberOfContours == 0){
             file.seekg(8, std::ios::cur);
         }else{
-            std::cout << "Hässlicher Glyph" << std::endl;
+            // std::cout << "Hässlicher Glyph" << std::endl;
             readCompoundGlyph(file);
         }
     }
@@ -296,13 +321,102 @@ ErrCode loadTTF(const char* name){
     }
     file.seekg(cmap->offset, std::ios::beg);
     file.seekg(2, std::ios::cur);   //Skippe Version
-    WORD numberSubtables;
-    file.read((char*)&numberSubtables, 2);
-    numberSubtables = swapEndian(&numberSubtables);
+    WORD numberSubtables = readUint16(file);
     for(WORD i=0; i < numberSubtables; ++i){
-        WORD platformID;
-        file.read((char*)&platformID, 2);
-        platformID = swapEndian(&platformID);
+        WORD platformID = readUint16(file);
+        WORD platformSpecificID = readUint16(file);
+        DWORD offset = readUint32(file);
+        // std::cout << "PlatformID: " << platformID << " | PlatformSpecificID: " << platformSpecificID << " | Offset: " << offset << std::endl;
+        //TODO Sucht aktuell nur nach einer Unicode Tabelle die angeblich am meisten verwendet wird
+        if(platformID == 0 && platformSpecificID == 3){
+            file.seekg(cmap->offset+offset, std::ios::beg);
+            WORD format = readUint16(file);
+            // std::cout << "Format: " << format << std::endl;
+            //TODO auch hier wieder nur ein Format, nämlich 4, da es das meist genutzte ist
+            if(format == 4){
+                WORD length = readUint16(file);
+                WORD language = readUint16(file);
+                WORD segCountX2 = readUint16(file);
+                WORD searchRange = readUint16(file);
+                WORD entrySelector = readUint16(file);
+                WORD rangeShift = readUint16(file);
+                WORD* endCode = new WORD[segCountX2/2];
+                for(WORD j=0; j < segCountX2/2; ++j){
+                    endCode[j] = readUint16(file);
+                }
+                file.seekg(2, std::ios::cur);   //Skippe padding
+                // std::cout << "Anzahl der Segmente: " << segCountX2/2 << std::endl;
+                WORD* startCode = new WORD[segCountX2/2];
+                for(WORD j=0; j < segCountX2/2; ++j){
+                    startCode[j] = readUint16(file);
+                }
+                WORD* idDelta = new WORD[segCountX2/2];
+                for(WORD j=0; j < segCountX2/2; ++j){
+                    idDelta[j] = readUint16(file);
+                }
+                WORD* idRangeOffset = new WORD[segCountX2/2];
+                for(WORD j=0; j < segCountX2/2; ++j){
+                    idRangeOffset[j] = readUint16(file);
+                }
+                // for(WORD j=0; j < segCountX2/2; ++j){
+                //     std::cout << startCode[j] << " -> " << endCode[j] << " : " << idRangeOffset[j] << " : " << idDelta[j] << std::endl;
+                // }
+                WORD restBytes = length - (16+4*segCountX2);
+                // std::cout << "Rest Bytes: " << restBytes << std::endl;
+                WORD* glyphIndexArray = new WORD[restBytes];
+                for(WORD j=0; j < restBytes; ++j){
+                    glyphIndexArray[j] = readUint16(file);
+                    // std::cout << "[" << j << "]: " << glyphIndexArray[j] << std::endl;
+                }
+                font.asciiToGlyphMapping[0] = 0;
+                for(WORD j=1; j < 256; ++j){
+                    for(WORD k=0; k < segCountX2/2; ++k){
+                        if(endCode[k] >= j){    //Missing Char Symbol
+                            if(startCode[k] > j){
+                                font.asciiToGlyphMapping[j] = 0;
+                                break;
+                            }
+                            if(idRangeOffset[k] == 0){
+                                font.asciiToGlyphMapping[j] = idDelta[k] + j;
+                                break;
+                            }
+                            WORD offset = (idRangeOffset[k]-segCountX2+k*2)/2;
+                            font.asciiToGlyphMapping[j] = glyphIndexArray[offset + (j-startCode[k])];
+                            break;
+                        }
+                    }
+                }
+                delete[] startCode;
+                delete[] idDelta;
+                delete[] idRangeOffset;
+                delete[] glyphIndexArray;
+                break;
+            }
+        }
+    }
+
+    TableOffset* hhea = (TableOffset*)searchHashmap(map, tableStringToCode("hhea"));
+    if(cmap == nullptr){
+        destroyHashmap(map);
+        file.close();
+        return GENERIC_ERROR;
+    }
+    file.seekg(hhea->offset, std::ios::beg);
+    file.seekg(34, std::ios::cur); //Skippe mal wieder ne Menge Daten
+    WORD numOfLongHorMetrics = readUint16(file);
+
+    TableOffset* hmtx = (TableOffset*)searchHashmap(map, tableStringToCode("hmtx"));
+    if(cmap == nullptr){
+        destroyHashmap(map);
+        file.close();
+        return GENERIC_ERROR;
+    }
+    file.seekg(hmtx->offset, std::ios::beg);
+    font.horMetricsCount = numOfLongHorMetrics;
+    font.horMetrics = new HorMetric[numOfLongHorMetrics];
+    for(WORD i=0; i < numOfLongHorMetrics; ++i){
+        font.horMetrics[i].advanceWidth = readUint16(file);
+        font.horMetrics[i].leftSideBearing = readInt16(file);
     }
 
 	destroyHashmap(map);
