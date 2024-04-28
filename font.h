@@ -61,7 +61,7 @@ void readCoordinate(std::fstream& file, SWORD* coords, BYTE* flags, BYTE flagBit
 			BYTE tmp;
 			tmp = readUint8(file);
 			coords[i] = tmp;
-			if(!flagBitSet(flags[i], 4+flagBitOffset)) coords[i] *= -1;
+			if(!flagBitSet(flags[i], 4+flagBitOffset)) coords[i] = 0-coords[i];
 		}else{
 			if(flagBitSet(flags[i], 4+flagBitOffset)){
 				coords[i] = prevVal;
@@ -266,6 +266,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
 	DWORD version = readUint32(file);
 	WORD numGlyphs = readUint16(file);
 	std::cout << "Glyphenanzahl: " << numGlyphs << std::endl;
+    
     createGlyphStorage(font.glyphStorage, numGlyphs);
 	WORD maxPoints = readUint16(file);
 	std::cout << "Maximale Punkteanzahl: " << maxPoints << std::endl;
@@ -280,6 +281,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
     }
     file.seekg(loca->offset, std::ios::beg);
     DWORD glyphOffsets[numGlyphs];
+    bool emptyGlyphs[numGlyphs]{false};
     for(WORD i=0; i <= numGlyphs; ++i){     //Ja laut Doku numGlyphs + 1
         if(indexToLocFormat==0){
             WORD offset = readUint16(file);
@@ -287,6 +289,9 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         }else{
             glyphOffsets[i] = readUint32(file);
         }
+        if(i < 1) continue;
+        WORD length = glyphOffsets[i] - glyphOffsets[i-1];
+        if(length == 0) emptyGlyphs[i-1] = true;
     }
 
 	TableOffset* glyf = (TableOffset*)searchHashmap(map, tableStringToCode("glyf"));
@@ -295,20 +300,15 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
 		file.close();
 		return GENERIC_ERROR;
 	}
-    file.seekg(glyf->offset, std::ios::beg);
 
     for(WORD i=0; i < numGlyphs; ++i){
         DWORD offsetForGlyph = glyphOffsets[i] + glyf->offset;
         file.seekg(offsetForGlyph, std::ios::beg);
         SWORD numberOfContours = readInt16(file);
-        // std::cout << "Konturenanzahl: " << numberOfContours << std::endl;
-        if(numberOfContours > 0){
-            // std::cout << "Simpler Glyph" << std::endl;
+        if(numberOfContours > 0 && emptyGlyphs[i] == false){
             readSimpleGlyph(file, font.glyphStorage.glyphs[i], numberOfContours);
         }else if(numberOfContours == 0){
-            file.seekg(8, std::ios::cur);
         }else{
-            // std::cout << "Hässlicher Glyph" << std::endl;
             readCompoundGlyph(file);
         }
     }
@@ -326,12 +326,10 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         WORD platformID = readUint16(file);
         WORD platformSpecificID = readUint16(file);
         DWORD offset = readUint32(file);
-        // std::cout << "PlatformID: " << platformID << " | PlatformSpecificID: " << platformSpecificID << " | Offset: " << offset << std::endl;
         //TODO Sucht aktuell nur nach einer Unicode Tabelle die angeblich am meisten verwendet wird
         if(platformID == 0 && platformSpecificID == 3){
             file.seekg(cmap->offset+offset, std::ios::beg);
             WORD format = readUint16(file);
-            // std::cout << "Format: " << format << std::endl;
             //TODO auch hier wieder nur ein Format, nämlich 4, da es das meist genutzte ist
             if(format == 4){
                 WORD length = readUint16(file);
@@ -345,7 +343,6 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
                     endCode[j] = readUint16(file);
                 }
                 file.seekg(2, std::ios::cur);   //Skippe padding
-                // std::cout << "Anzahl der Segmente: " << segCountX2/2 << std::endl;
                 WORD* startCode = new WORD[segCountX2/2];
                 for(WORD j=0; j < segCountX2/2; ++j){
                     startCode[j] = readUint16(file);
@@ -358,18 +355,12 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
                 for(WORD j=0; j < segCountX2/2; ++j){
                     idRangeOffset[j] = readUint16(file);
                 }
-                // for(WORD j=0; j < segCountX2/2; ++j){
-                //     std::cout << startCode[j] << " -> " << endCode[j] << " : " << idRangeOffset[j] << " : " << idDelta[j] << std::endl;
-                // }
                 WORD restBytes = length - (16+4*segCountX2);
-                // std::cout << "Rest Bytes: " << restBytes << std::endl;
                 WORD* glyphIndexArray = new WORD[restBytes];
                 for(WORD j=0; j < restBytes; ++j){
                     glyphIndexArray[j] = readUint16(file);
-                    // std::cout << "[" << j << "]: " << glyphIndexArray[j] << std::endl;
                 }
-                font.asciiToGlyphMapping[0] = 0;
-                for(WORD j=1; j < 256; ++j){
+                for(WORD j=0; j < 256; ++j){
                     for(WORD k=0; k < segCountX2/2; ++k){
                         if(endCode[k] >= j){    //Missing Char Symbol
                             if(startCode[k] > j){

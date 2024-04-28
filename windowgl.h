@@ -343,19 +343,6 @@ ErrCode clearWindow(Window& window)noexcept{
 	return SUCCESS;
 }
 
-//TODO bitmap kann man bestimmt auch im Window speichern und auf dieser dann rummalen. anstatt diese immer neu zu erzeugen
-//Muss dann halt auch immer geupdated werden, wenn das Window skaliert wird,...
-ErrCode drawWindow(Window& window)noexcept{
-	#ifdef INVALIDHANDLEERRORS
-	if(window.handle == NULL) return WINDOW_NOT_FOUND;
-	#endif
-	if(SwapBuffers(GetDC(window.handle)) == FALSE){
-		std::cerr << "SwapBuffers " << GetLastError() << std::endl;
-		return GENERIC_ERROR;
-	}
-	return SUCCESS;
-}
-
 ErrCode enableBlending(Window& window)noexcept{
 	wglMakeCurrent(GetDC(window.handle), window.glContext);
 	glEnable(GL_BLEND);
@@ -538,8 +525,8 @@ ErrCode drawLine(Window& window, WORD x1, WORD y1, WORD x2, WORD y2, WORD width,
 	"void main(){"
 	"	vec2 dir = pos2-pos1;"
 	"	float proj = dir.x*(texCoord.x-pos1.x)+dir.y*(texCoord.y-pos1.y);"
-	"	float length = dir.x*dir.x+dir.y*dir.y;"
-	"	float d = proj/length;"
+	"	float len = dir.x*dir.x+dir.y*dir.y;"
+	"	float d = proj/len;"
 	"	d = clamp(d, 0.f, 1.f);"
 	"	vec2 projPt = pos1+dir*d;"
 	"	vec2 diff = texCoord-projPt;"
@@ -774,5 +761,16 @@ ErrCode drawCircle(Window& window, WORD x, WORD y, WORD rad, DWORD color){
 }
 
 ErrCode drawFontChar()noexcept{
+	return SUCCESS;
+}
+
+ErrCode drawWindow(Window& window)noexcept{
+	#ifdef INVALIDHANDLEERRORS
+	if(window.handle == NULL) return WINDOW_NOT_FOUND;
+	#endif
+	if(SwapBuffers(GetDC(window.handle)) == FALSE){
+		std::cerr << "SwapBuffers " << GetLastError() << std::endl;
+		return GENERIC_ERROR;
+	}
 	return SUCCESS;
 }

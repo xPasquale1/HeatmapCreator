@@ -8,19 +8,19 @@ void drawChar(Window& window, Font& font, BYTE c, WORD xOffset, WORD yOffset){
         WORD endIdx = glyph.endOfContours[i];
         for(WORD j=startIdx; j < endIdx; ++j){
             WORD end = j+1;
-            drawLine(window, glyph.xCoords[j]+xOffset, glyph.yCoords[j]+yOffset, glyph.xCoords[end]+xOffset, glyph.yCoords[end]+yOffset, 2, RGBA(255, 255, 255));
+            drawLine(window, glyph.xCoords[j]+xOffset, glyph.yCoords[j]+yOffset, glyph.xCoords[end]+xOffset, glyph.yCoords[end]+yOffset, 1, RGBA(255, 255, 255));
         }
-        drawLine(window, glyph.xCoords[endIdx]+xOffset, glyph.yCoords[endIdx]+yOffset, glyph.xCoords[startIdx]+xOffset, glyph.yCoords[startIdx]+yOffset, 2, RGBA(255, 255, 255));
+        drawLine(window, glyph.xCoords[endIdx]+xOffset, glyph.yCoords[endIdx]+yOffset, glyph.xCoords[startIdx]+xOffset, glyph.yCoords[startIdx]+yOffset, 1, RGBA(255, 255, 255));
         startIdx = endIdx+1;
     }
-    for(SWORD i=0; i < glyph.numPoints; ++i){
-        drawCircle(window, glyph.xCoords[i]+xOffset, glyph.yCoords[i]+yOffset, 4, RGBA(0, 180, 255));
-    }
+    // for(SWORD i=0; i < glyph.numPoints; ++i){
+    //     drawCircle(window, glyph.xCoords[i]+xOffset, glyph.yCoords[i]+yOffset, 4, RGBA(0, 180, 255));
+    // }
 }
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){
     Window window;
-    if(ErrCheck(createWindow(window, hInstance, 1000, 1000, 0, 0, 1, "Test-Fenster1"), "Fenster öffnen") != SUCCESS) return -1;
+    if(ErrCheck(createWindow(window, hInstance, 1000, 1000, 0, 0, 1, "Fenster"), "Fenster öffnen") != SUCCESS) return -1;
     init();
 
     Image image;
@@ -29,30 +29,40 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     Font font;
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
+    float scalingFactor = font.unitsPerEm/75.f;
+    SWORD yMin = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMin;
+    SWORD yMax = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMax;
+    for(WORD i=1; i < 256; ++i){
+        SWORD min = font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].yMin;
+        SWORD max = font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].yMax;
+        if(min < yMin) yMin = min;
+        if(max > yMax) yMax = max;
+    }
+    for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth /= scalingFactor;
     for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
         Glyph& glyph = font.glyphStorage.glyphs[i];
+        glyph.yMin = (0-glyph.yMin)+yMax;
+        glyph.yMax = (0-glyph.yMax)+yMax;
+        glyph.yMin /= scalingFactor;
+        glyph.yMax /= scalingFactor;
+        glyph.xMin /= scalingFactor;
+        glyph.xMax /= scalingFactor;
         for(WORD j=0; j < glyph.numPoints; ++j){
-            // glyph.yCoords[j] = glyph.yMax-glyph.yCoords[j]+glyph.yMin;
-            // glyph.xCoords[j] = (glyph.xCoords[j]*128)/(glyph.xMax-glyph.xMin);
-            // glyph.yCoords[j] = (glyph.yCoords[j]*128)/(glyph.yMax-glyph.yMin);
-            glyph.xCoords[j] /= 10;
-            glyph.yCoords[j] /= 10;
+            glyph.yCoords[j] = (0-glyph.yCoords[j])+yMax;
+            glyph.xCoords[j] /= scalingFactor;
+            glyph.yCoords[j] /= scalingFactor;
         }
     }
 
-    static bool LmbPressed = false;
+    bool LmbPressed = false;
+    char text[] = "The quick brown fox jumps over the lazy dog.";
     while(1){
         getMessages(window);
         if(getWindowFlag(window, WINDOW_CLOSE)) break;
 
         if(getButton(mouse, MOUSE_LMB)){
             if(LmbPressed == false){
-                for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
-                    Glyph& glyph = font.glyphStorage.glyphs[i];
-                    for(WORD j=0; j < glyph.numPoints; ++j){
-                        glyph.yCoords[j] = (glyph.yMax/10)-glyph.yCoords[j]+(glyph.yMin/10);
-                    }
-                }
+
             }
             LmbPressed = true;
         }else LmbPressed = false;
@@ -61,19 +71,26 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         DWORD xOffset = 20;
         
-        char text[] = "The q";
         for(int i=0; i < strlen(text); ++i){
-            drawLine(window, 0, 100, window.windowWidth, 100, 1, RGBA(255, 255, 255));
-            drawChar(window, font, text[i], xOffset, 100);
+            drawChar(window, font, text[i], xOffset, 0);
             Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
-            drawLine(window, (glyph.xMin/10)+xOffset, 100+(glyph.yMin/10), (glyph.xMax/10)+xOffset, 100+(glyph.yMin/10), 1, RGBA(0, 255, 0));
-            drawLine(window, (glyph.xMin/10)+xOffset, 100+(glyph.yMax/10), (glyph.xMax/10)+xOffset, 100+(glyph.yMax/10), 1, RGBA(0, 255, 0));
-            // xOffset += 55;
-            xOffset += 130;
+            drawLine(window, glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
+            drawLine(window, glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
+            if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
+            else xOffset += font.horMetrics[0].advanceWidth;
+        }
+        xOffset = 20;
+        for(int i=0; i < strlen(text); ++i){
+            drawChar(window, font, text[i], xOffset, (yMax-yMin)/scalingFactor);
+            Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
+            drawLine(window, glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
+            drawLine(window, glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
+            if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
+            else xOffset += font.horMetrics[0].advanceWidth;
         }
 
         drawWindow(window);
-        Sleep(32);
+        Sleep(16);
     }
     destroyFont(font);
     destroyImage(image);
