@@ -320,7 +320,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         return GENERIC_ERROR;
     }
     file.seekg(cmap->offset, std::ios::beg);
-    file.seekg(2, std::ios::cur);   //Skippe Version
+    file.seekg(2, std::ios::cur);				//Skippe Version
     WORD numberSubtables = readUint16(file);
     for(WORD i=0; i < numberSubtables; ++i){
         WORD platformID = readUint16(file);
@@ -342,7 +342,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
                 for(WORD j=0; j < segCountX2/2; ++j){
                     endCode[j] = readUint16(file);
                 }
-                file.seekg(2, std::ios::cur);   //Skippe padding
+                file.seekg(2, std::ios::cur);				//Skippe padding
                 WORD* startCode = new WORD[segCountX2/2];
                 for(WORD j=0; j < segCountX2/2; ++j){
                     startCode[j] = readUint16(file);
@@ -362,7 +362,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
                 }
                 for(WORD j=0; j < 256; ++j){
                     for(WORD k=0; k < segCountX2/2; ++k){
-                        if(endCode[k] >= j){    //Missing Char Symbol
+                        if(endCode[k] >= j){				//Missing Char Symbol
                             if(startCode[k] > j){
                                 font.asciiToGlyphMapping[j] = 0;
                                 break;
@@ -393,7 +393,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         return GENERIC_ERROR;
     }
     file.seekg(hhea->offset, std::ios::beg);
-    file.seekg(34, std::ios::cur); //Skippe mal wieder ne Menge Daten
+    file.seekg(34, std::ios::cur);					//Skippe mal wieder ne Menge Daten
     WORD numOfLongHorMetrics = readUint16(file);
 
     TableOffset* hmtx = (TableOffset*)searchHashmap(map, tableStringToCode("hmtx"));

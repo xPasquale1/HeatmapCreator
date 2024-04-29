@@ -8,9 +8,9 @@ void drawChar(Window& window, Font& font, BYTE c, WORD xOffset, WORD yOffset){
         WORD endIdx = glyph.endOfContours[i];
         for(WORD j=startIdx; j < endIdx; ++j){
             WORD end = j+1;
-            drawLine(window, glyph.xCoords[j]+xOffset, glyph.yCoords[j]+yOffset, glyph.xCoords[end]+xOffset, glyph.yCoords[end]+yOffset, 1, RGBA(255, 255, 255));
+            addLine(glyph.xCoords[j]+xOffset, glyph.yCoords[j]+yOffset, glyph.xCoords[end]+xOffset, glyph.yCoords[end]+yOffset, 1, RGBA(255, 255, 255));
         }
-        drawLine(window, glyph.xCoords[endIdx]+xOffset, glyph.yCoords[endIdx]+yOffset, glyph.xCoords[startIdx]+xOffset, glyph.yCoords[startIdx]+yOffset, 1, RGBA(255, 255, 255));
+        addLine(glyph.xCoords[endIdx]+xOffset, glyph.yCoords[endIdx]+yOffset, glyph.xCoords[startIdx]+xOffset, glyph.yCoords[startIdx]+yOffset, 1, RGBA(255, 255, 255));
         startIdx = endIdx+1;
     }
     // for(SWORD i=0; i < glyph.numPoints; ++i){
@@ -56,17 +56,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     bool LmbPressed = false;
     char text[] = "The quick brown fox jumps over the lazy dog.";
+
+    Timer timer;
     while(1){
         getMessages(window);
         if(getWindowFlag(window, WINDOW_CLOSE)) break;
 
         if(getButton(mouse, MOUSE_LMB)){
             if(LmbPressed == false){
-
             }
             LmbPressed = true;
         }else LmbPressed = false;
 
+        resetTimer(timer);
         clearWindow(window);
 
         DWORD xOffset = 20;
@@ -74,8 +76,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         for(int i=0; i < strlen(text); ++i){
             drawChar(window, font, text[i], xOffset, 0);
             Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
-            drawLine(window, glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
-            drawLine(window, glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
+            addLine(glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
+            addLine(glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
             if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
             else xOffset += font.horMetrics[0].advanceWidth;
         }
@@ -83,13 +85,15 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         for(int i=0; i < strlen(text); ++i){
             drawChar(window, font, text[i], xOffset, (yMax-yMin)/scalingFactor);
             Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
-            drawLine(window, glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
-            drawLine(window, glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
+            addLine(glyph.xMin+xOffset, glyph.yMin+(yMax-yMin)/scalingFactor, glyph.xMax+xOffset, glyph.yMin+(yMax-yMin)/scalingFactor, 1, RGBA(0, 255, 0));
+            addLine(glyph.xMin+xOffset, glyph.yMax+(yMax-yMin)/scalingFactor, glyph.xMax+xOffset, glyph.yMax+(yMax-yMin)/scalingFactor, 1, RGBA(255, 0, 0));
             if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
             else xOffset += font.horMetrics[0].advanceWidth;
         }
 
+        renderLines(window);
         drawWindow(window);
+        // std::cout << getTimerMillis(timer) << std::endl;
         Sleep(16);
     }
     destroyFont(font);

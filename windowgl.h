@@ -31,6 +31,7 @@ PFNGLBLENDFUNCPROC glBlendFunc;
 PFNGLCLEARCOLORPROC glClearColor;
 PFNGLDRAWARRAYSPROC glDrawArrays;
 PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
+PFNGLVERTEXATTRIBIPOINTERPROC glVertexAttribIPointer;
 PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
 PFNGLDISABLEVERTEXATTRIBARRAYPROC glDisableVertexAttribArray;
 PFNGLCREATESHADERPROC glCreateShader;
@@ -78,6 +79,7 @@ void init(){
 	glClearColor = (PFNGLCLEARCOLORPROC)loadGlFunction("glClearColor");
 	glDrawArrays = (PFNGLDRAWARRAYSPROC)loadGlFunction("glDrawArrays");
 	glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)loadGlFunction("glVertexAttribPointer");
+	glVertexAttribIPointer = (PFNGLVERTEXATTRIBIPOINTERPROC)loadGlFunction("glVertexAttribIPointer");
 	glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)loadGlFunction("glEnableVertexAttribArray");
 	glDisableVertexAttribArray = (PFNGLDISABLEVERTEXATTRIBARRAYPROC)loadGlFunction("glDisableVertexAttribArray");
 	glCreateShader = (PFNGLCREATESHADERPROC)loadGlFunction("glCreateShader");
@@ -504,115 +506,6 @@ ErrCode drawImage(Window& window, Image& image, WORD x1, WORD y1, WORD x2, WORD 
 	return SUCCESS;
 }
 
-ErrCode drawLine(Window& window, WORD x1, WORD y1, WORD x2, WORD y2, WORD width, DWORD color)noexcept{
-	const GLchar vertexShaderCode[] = 
-	"#version 330\n"
-	"layout(location=0) in vec2 pos;"
-	"layout(location=1) in vec2 tex;"
-	"out vec2 texCoord;"
-	"void main(){"
-	"	texCoord = tex;"
-	"   gl_Position = vec4(pos, 1.0, 1.0);"
-	"}";
-	const GLchar fragmentShaderCode[] = 
-	"#version 330\n"
-	"out vec4 fragColor;"
-	"in vec2 texCoord;"
-	"uniform vec4 color;"
-	"uniform vec2 pos1;"
-	"uniform vec2 pos2;"
-	"uniform int lineWidth;"
-	"void main(){"
-	"	vec2 dir = pos2-pos1;"
-	"	float proj = dir.x*(texCoord.x-pos1.x)+dir.y*(texCoord.y-pos1.y);"
-	"	float len = dir.x*dir.x+dir.y*dir.y;"
-	"	float d = proj/len;"
-	"	d = clamp(d, 0.f, 1.f);"
-	"	vec2 projPt = pos1+dir*d;"
-	"	vec2 diff = texCoord-projPt;"
-	"	if(length(diff) > lineWidth) discard;"
-	"   fragColor = vec4(color/255);"
-	"}";
-
-	wglMakeCurrent(GetDC(window.handle), window.glContext);
-    GLuint program = glCreateProgram();
-    GLuint vertexShader = 0;
-    GLuint fragmentShader = 0;
-    if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
-    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) GENERIC_ERROR;
-    glAttachShader(program, fragmentShader);
-    glAttachShader(program, vertexShader);
-    glLinkProgram(program);
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-	float xMin = x1;
-	if(x2 < x1) xMin = x2;
-	xMin -= width;
-	float xMax = x1;
-	if(x2 > x1) xMax = x2;
-	xMax += width;
-	float yMin = y1;
-	if(y2 < y1) yMin = y2;
-	yMin -= width;
-	float yMax = y1;
-	if(y2 > y1) yMax = y2;
-	yMax += width;
-	float startX = (float)xMin/window.windowWidth*2-1;
-	float startY = (float)(window.windowHeight-yMin)/window.windowHeight*2-1;
-	float endX = (float)xMax/window.windowWidth*2-1;
-	float endY = (float)(window.windowHeight-yMax)/window.windowHeight*2-1;
-
-    float vertices[] = {
-        startX, endY,
-        endX, endY,
-        endX, startY,
-        endX, startY,
-        startX, startY,
-        startX, endY
-    };
-    float texCoords[] = {
-        (float)xMin, (float)yMax,
-        (float)xMax, (float)yMax,
-        (float)xMax, (float)yMin,
-        (float)xMax, (float)yMin,
-        (float)xMin, (float)yMin,
-        (float)xMin, (float)yMax
-    };
-    GLuint VBOPos, VBOTex, VAO;
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBOPos);
-    glGenBuffers(1, &VBOTex);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBOTex);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(texCoords), texCoords, GL_STATIC_DRAW);
-    
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
-
-    glUseProgram(program);
-
-    glUniform4f(glGetUniformLocation(program, "color"), R(color), G(color), B(color), A(color));
-	glUniform2f(glGetUniformLocation(program, "pos1"), x1, y1);
-	glUniform2f(glGetUniformLocation(program, "pos2"), x2, y2);
-	glUniform1i(glGetUniformLocation(program, "lineWidth"), width);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-
-	glDeleteVertexArrays(1, &VAO);
-	glDeleteBuffers(1, &VBOPos);
-	glDeleteBuffers(1, &VBOTex);
-	glDeleteProgram(program);
-	return SUCCESS;
-}
-
 ErrCode drawRectangle(Window& window, WORD x, WORD y, WORD dx, WORD dy, DWORD color)noexcept{
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
@@ -772,5 +665,160 @@ ErrCode drawWindow(Window& window)noexcept{
 		std::cerr << "SwapBuffers " << GetLastError() << std::endl;
 		return GENERIC_ERROR;
 	}
+	return SUCCESS;
+}
+
+
+struct LineData{
+	WORD x1;
+	WORD y1;
+	WORD x2;
+	WORD y2;
+	float width;
+	DWORD color;
+};
+static std::vector<LineData> lineData;
+ErrCode addLine(WORD x1, WORD y1, WORD x2, WORD y2, float width, DWORD color)noexcept{
+	lineData.push_back({x1, y1, x2, y2, width, color});
+	return SUCCESS;
+}
+
+ErrCode renderLines(Window& window){
+	const GLchar vertexShaderCode[] = 
+	"#version 330\n"
+	"layout(location=0) in vec4 pos;"
+	"layout(location=1) in float width;"
+	"layout(location=2) in uint color;"
+	"out vec4 vPos;"
+	"out float vLineWidth;"
+	"out vec4 vColor;"
+	"void main(){"
+	"	vPos = pos;"
+	"	vLineWidth = width;"
+	"	float r = float((color>>16) & 0xFFu)/255.0;"
+	"	float g = float((color>>8) & 0xFFu)/255.0;"
+	"	float b = float((color) & 0xFFu)/255.0;"
+	"	float a = float((color>>24) & 0xFFu)/255.0;"
+	"	vColor = vec4(r, g, b, a);"
+	"   gl_Position = vec4(1.0);"
+	"}";
+	const GLchar fragmentShaderCode[] = 
+	"#version 330\n"
+	"out vec4 fragColor;"
+	"in vec2 texCoord;"
+	"in vec2 pos1;"
+	"in vec2 pos2;"
+	"in float lineWidth;"
+	"in vec4 color;"
+	"void main(){"
+	"	vec2 dir = pos2-pos1;"
+	"	float proj = dir.x*(texCoord.x-pos1.x)+dir.y*(texCoord.y-pos1.y);"
+	"	float len = dir.x*dir.x+dir.y*dir.y;"
+	"	float d = proj/len;"
+	"	d = clamp(d, 0.f, 1.f);"
+	"	vec2 projPt = pos1+dir*d;"
+	"	vec2 diff = texCoord-projPt;"
+	"	if(length(diff) > lineWidth) discard;"
+	"   fragColor = vec4(color);"
+	"}";
+	const GLchar geometryShaderCode[] = 
+	"#version 330\n"
+	"layout(points) in;"
+	"layout(triangle_strip, max_vertices = 4) out;"
+	"in vec4 vPos[];"
+	"in float vLineWidth[];"
+	"in vec4 vColor[];"
+	"out vec2 texCoord;"
+	"out vec2 pos1;"
+	"out vec2 pos2;"
+	"out float lineWidth;"
+	"out vec4 color;"
+	"uniform vec2 wDimensions;"
+	"void main(){"
+	"	lineWidth = vLineWidth[0];"
+	"	color = vColor[0];"
+	"	float xMin = min(vPos[0].x, vPos[0].z)-vLineWidth[0];"
+	"	float xMax = max(vPos[0].x, vPos[0].z)+vLineWidth[0];"
+	"	float yMin = min(vPos[0].y, vPos[0].w)-vLineWidth[0];"
+	"	float yMax = max(vPos[0].y, vPos[0].w)+vLineWidth[0];"
+	"	float xMinPos = ((xMin*2.0)/wDimensions.x)-1.0;"
+	"	float yMinPos = (((wDimensions.y-yMin)*2.0)/wDimensions.y)-1.0;"
+	"	float xMaxPos = ((xMax*2.0)/wDimensions.x)-1.0;"
+	"	float yMaxPos = (((wDimensions.y-yMax)*2.0)/wDimensions.y)-1.0;"
+	"	pos1 = vPos[0].xy;"
+	"	pos2 = vPos[0].zw;"
+	"	gl_Position = vec4(xMinPos, yMinPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMin, yMin);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMinPos, yMaxPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMin, yMax);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMinPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMax, yMin);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMaxPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMax, yMax);"
+	"	EmitVertex();"
+	"	EndPrimitive();"
+	"}";
+
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
+    GLuint program = glCreateProgram();
+    GLuint vertexShader = 0;
+    GLuint fragmentShader = 0;
+	GLuint geometryShader = 0;
+    if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(loadShader(geometryShader, GL_GEOMETRY_SHADER, geometryShaderCode, sizeof(geometryShaderCode)), "Geometry Shader laden") != SUCCESS) return GENERIC_ERROR;
+    glAttachShader(program, vertexShader);
+	glAttachShader(program, fragmentShader);
+	glAttachShader(program, geometryShader);
+    glLinkProgram(program);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+	glDeleteShader(geometryShader);
+
+    GLuint VBOPos, VBOWidth, VBOColor, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBOPos);
+	glGenBuffers(1, &VBOWidth);
+	glGenBuffers(1, &VBOColor);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
+    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(LineData), 0);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBOWidth);
+    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(LineData), (void*)8);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
+    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(LineData), (void*)12);
+
+    glUseProgram(program);
+
+	glUniform2f(glGetUniformLocation(program, "wDimensions"), window.windowWidth, window.windowHeight);
+
+    glDrawArrays(GL_POINTS, 0, lineData.size());
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
+
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBOPos);
+	glDeleteBuffers(1, &VBOWidth);
+	glDeleteBuffers(1, &VBOColor);
+	glDeleteProgram(program);
+	lineData.clear();
 	return SUCCESS;
 }

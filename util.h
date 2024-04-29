@@ -204,72 +204,46 @@ inline constexpr bool getButton(Keyboard& keyboard, KEYBOARDBUTTON button){retur
 inline constexpr void setButton(Keyboard& keyboard, KEYBOARDBUTTON button){keyboard.buttons |= button;}
 inline constexpr void resetButton(Keyboard& keyboard, KEYBOARDBUTTON button){keyboard.buttons &= ~button;}
 
-//TODO gescheiter Timer
-//Zeitunterschied in Millisekunden
-// inline constexpr long long systemTimeDiff(SYSTEMTIME& start, SYSTEMTIME& end){
-// 	return (end.wYear-start.wYear)*31536000000+(end.wDay-start.wDay)*86400000+(end.wHour-start.wHour)*3600000+(end.wMinute-start.wMinute)*60000+(end.wSecond-start.wSecond)*1000+end.wMilliseconds-start.wMilliseconds;
-// }
+struct Timer{
+	LARGE_INTEGER startTime;
+	LARGE_INTEGER frequency;
+};
 
-#include <chrono>
-#define PERFORMANCE_ANALYZER
-#define PERFORMANCE_ANALYZER_DATA_POINTS 3
-//TODO chrono... ew, win api hat gute schnittstelle mit filetime
-struct PerfAnalyzer{
-	//Indexe: 0 rasterizer, 1 drawing, 2 ungenutzt
-	float data[PERFORMANCE_ANALYZER_DATA_POINTS*8] = {};
-	BYTE counter[PERFORMANCE_ANALYZER_DATA_POINTS-1] = {};
-	DWORD totalTriangles = 0;
-	DWORD drawnTriangles = 0;
-	DWORD pixelsDrawn = 0;
-	DWORD pixelsCulled = 0;		//Wegen Depthbuffer nicht gezeichnete Pixel
-	std::chrono::high_resolution_clock::time_point tp[2];
-}; static PerfAnalyzer _perfAnalyzer;
-
-void startTimer(PerfAnalyzer& pa, BYTE idx){pa.tp[idx] = std::chrono::high_resolution_clock::now();}
-float stopTimer(PerfAnalyzer& pa, BYTE idx){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()-pa.tp[idx]).count();}
-void reset(PerfAnalyzer& pa){
-	pa.totalTriangles = 0;
-	pa.drawnTriangles = 0;
-	pa.pixelsDrawn = 0;
-	pa.pixelsCulled = 0;
+//Setzt den Startzeitpunkt des Timers zurück
+void resetTimer(Timer& timer)noexcept{
+	QueryPerformanceFrequency(&timer.frequency); 
+	QueryPerformanceCounter(&timer.startTime);
 }
-void recordData(PerfAnalyzer& pa, BYTE idx){
-	float ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()-pa.tp[idx]).count();
-	pa.data[pa.counter[idx]/32+idx*8] = ms;
-	pa.counter[idx] += 32;
+//Gibt den Zeitunterschied seid dem Startzeitpunkt in Millisekunden zurück
+float getTimerMillis(Timer& timer)noexcept{
+	LARGE_INTEGER endTime;
+	QueryPerformanceCounter(&endTime);
+	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
+	timediff *= 1000;
+	return ((float)timediff / timer.frequency.QuadPart);
 }
-void recordDataNoInc(PerfAnalyzer& pa, BYTE idx){
-	float ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now()-pa.tp[idx]).count();
-	pa.data[pa.counter[idx]/32+idx*8] += ms;
+//Gibt den Zeitunterschied seid dem Startzeitpunkt in Mikrosekunden zurück
+float getTimerMicros(Timer& timer)noexcept{
+	LARGE_INTEGER endTime;
+	QueryPerformanceCounter(&endTime);
+	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
+	timediff *= 1000000;
+	return ((float)timediff / timer.frequency.QuadPart);
 }
-float getAvgData(PerfAnalyzer& pa, BYTE idx){
-	float out = 0;
-	for(BYTE i=0; i < 8; ++i){
-		out += pa.data[i+8*idx];
-	}
-	return out/8.;
+//Gibt den Zeitunterschied seid dem Startzeitpunkt in "Nanosekunden" zurück
+//(leider hängt alles von QueryPerformanceFrequency() ab, also kann es sein, dass man nur Intervalle von Nanosekunden bekommt)
+float getTimerNanos(Timer& timer)noexcept{
+	LARGE_INTEGER endTime;
+	QueryPerformanceCounter(&endTime);
+	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
+	timediff *= 1000000000;
+	return ((float)timediff / timer.frequency.QuadPart);
 }
-
-std::vector<void*> allocs;
 
 struct HashmapData{
 	HashmapData* next = nullptr;
 	DWORD key;
 	void* data = nullptr;
-	void* operator new(size_t size){
-		void* ptr = ::operator new(size);
-		allocs.push_back(ptr);
-		return ptr;
-	}
-	void operator delete(void* ptr){
-		for(std::vector<void*>::iterator iter = allocs.begin(); iter != allocs.end(); iter++){
-			if((*iter) == ptr){
-				allocs.erase(iter);
-				break;
-			}
-		}
-		::operator delete(ptr);
-	}
 };
 
 //Bildet eine DWORD key auf einen generischen void* ab

@@ -277,8 +277,8 @@ LRESULT CALLBACK default_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 			break;
 		}
 		case WM_MOUSEMOVE:{
-			mouse.pos.x = GET_X_LPARAM(lParam)/window->pixelSize;
-			mouse.pos.y = GET_Y_LPARAM(lParam)/window->pixelSize;
+			mouse.x = GET_X_LPARAM(lParam)/window->pixelSize;
+			mouse.y = GET_Y_LPARAM(lParam)/window->pixelSize;
 			break;
 		}
 	}
@@ -589,7 +589,7 @@ inline void buttonsClicked(Button* buttons, WORD button_count)noexcept{
 	for(WORD i=0; i < button_count; ++i){
 		Button& b = buttons[i];
 		if(!getButtonFlag(b, BUTTON_VISIBLE) || getButtonFlag(b, BUTTON_DISABLED)) continue;
-		ivec2 delta = {mouse.pos.x - b.pos.x, mouse.pos.y - b.pos.y};
+		ivec2 delta = {mouse.x - b.pos.x, mouse.y - b.pos.y};
 		if(delta.x >= 0 && delta.x <= b.size.x && delta.y >= 0 && delta.y <= b.size.y){
 			if(getButtonFlag(b, BUTTON_CAN_HOVER)) b.flags |= BUTTON_HOVER;
 			if(getButton(mouse, MOUSE_LMB) && !getButtonFlag(b, BUTTON_PRESSED)){

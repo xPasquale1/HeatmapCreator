@@ -713,8 +713,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25/window->pixelSize+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
-            int x = mouse.pos.x-200/window->pixelSize;
-            int y = mouse.pos.y;
+            int x = mouse.x-200/window->pixelSize;
+            int y = mouse.y;
             if(x >= 0){
                 gx = (float)x/(window->windowWidth/window->pixelSize-200/window->pixelSize)*(DATAPOINTRESOLUTIONX);
                 gy = (float)y/(window->windowHeight/window->pixelSize)*(DATAPOINTRESOLUTIONY);
