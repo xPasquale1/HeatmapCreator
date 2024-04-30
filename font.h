@@ -1,3 +1,5 @@
+#pragma once
+
 #include <fstream>
 #include "util.h"
 #include "math.h"

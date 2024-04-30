@@ -7,6 +7,7 @@
 
 #include "util.h"
 #include "math.h"
+#include "font.h"
 
 //TODO namespace endlich
 
@@ -66,7 +67,14 @@ PFNGLUNIFORM4FPROC glUniform4f;
 PFNGLUNIFORM1FPROC glUniform1f;
 PFNGLUNIFORM2FPROC glUniform2f;
 
-void init(){
+//TODO sollte einen OpenGL Kontext erstellen bevor das aufgerufen wird
+ErrCode initDrawLinesProgram();
+ErrCode initDrawCirclesProgram();
+ErrCode initDrawRectanglesProgram();
+static volatile GLuint drawLinesProgram;
+static volatile GLuint drawCirclesProgram;
+static volatile GLuint drawRectanglesProgram;
+ErrCode init(){
 	glGetError = (PFNGLGETERRORPROC)loadGlFunction("glGetError");
 	glCreateProgram = (PFNGLCREATEPROGRAMPROC)loadGlFunction("glCreateProgram");
 	glDeleteProgram = (PFNGLDELETEPROGRAMPROC)loadGlFunction("glDeleteProgram");
@@ -113,6 +121,10 @@ void init(){
 	glUniform4f = (PFNGLUNIFORM4FPROC)loadGlFunction("glUniform4f");
 	glUniform1f = (PFNGLUNIFORM1FPROC)loadGlFunction("glUniform1f");
 	glUniform2f = (PFNGLUNIFORM2FPROC)loadGlFunction("glUniform2f");
+	if(ErrCheck(initDrawLinesProgram(), "Draw Lines initialisieren") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(initDrawCirclesProgram(), "Draw Circles initialisieren") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(initDrawRectanglesProgram(), "Draw Rectangles initialisieren") != SUCCESS) return GENERIC_ERROR;
+	return SUCCESS;
 }
 
 #define INVALIDHANDLEERRORS
@@ -506,168 +518,256 @@ ErrCode drawImage(Window& window, Image& image, WORD x1, WORD y1, WORD x2, WORD 
 	return SUCCESS;
 }
 
-ErrCode drawRectangle(Window& window, WORD x, WORD y, WORD dx, WORD dy, DWORD color)noexcept{
+struct RectangleData{
+	WORD x;
+	WORD y;
+	WORD dx;
+	WORD dy;
+	DWORD color;
+};
+
+ErrCode initDrawRectanglesProgram(){
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
-	"layout(location=0) in vec2 pos;"
+	"layout(location=0) in vec4 pos;"
+	"layout(location=1) in uint color;"
+	"out vec4 vPos;"
+	"out vec4 vColor;"
 	"void main(){"
-	"   gl_Position = vec4(pos, 1.0, 1.0);"
+	"	vPos = pos;"
+	"	float r = float((color>>16) & 0xFFu)/255.0;"
+	"	float g = float((color>>8) & 0xFFu)/255.0;"
+	"	float b = float((color) & 0xFFu)/255.0;"
+	"	float a = float((color>>24) & 0xFFu)/255.0;"
+	"	vColor = vec4(r, g, b, a);"
+	"   gl_Position = vec4(1.0);"
 	"}";
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
 	"out vec4 fragColor;"
-	"uniform vec4 color;"
+	"in vec4 color;"
 	"void main(){"
-	"   fragColor = vec4(color/255);"
+	"   fragColor = vec4(color);"
+	"}";
+	const GLchar geometryShaderCode[] = 
+	"#version 330\n"
+	"layout(points) in;"
+	"layout(triangle_strip, max_vertices = 4) out;"
+	"in vec4 vPos[];"
+	"in vec4 vColor[];"
+	"out vec4 color;"
+	"uniform vec2 wDimensions;"
+	"void main(){"
+	"	color = vColor[0];"
+	"	float xMin = vPos[0].x;"
+	"	float xMax = vPos[0].x+vPos[0].z;"
+	"	float yMin = vPos[0].y;"
+	"	float yMax = vPos[0].y+vPos[0].w;"
+	"	float xMinPos = ((xMin*2.0)/wDimensions.x)-1.0;"
+	"	float yMinPos = (((wDimensions.y-yMin)*2.0)/wDimensions.y)-1.0;"
+	"	float xMaxPos = ((xMax*2.0)/wDimensions.x)-1.0;"
+	"	float yMaxPos = (((wDimensions.y-yMax)*2.0)/wDimensions.y)-1.0;"
+	"	gl_Position = vec4(xMinPos, yMinPos, 1.0, 1.0);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMinPos, yMaxPos, 1.0, 1.0);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMinPos, 1.0, 1.0);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMaxPos, 1.0, 1.0);"
+	"	EmitVertex();"
+	"	EndPrimitive();"
 	"}";
 
-	wglMakeCurrent(GetDC(window.handle), window.glContext);
-    GLuint program = glCreateProgram();
+    drawRectanglesProgram = glCreateProgram();
     GLuint vertexShader = 0;
     GLuint fragmentShader = 0;
+	GLuint geometryShader = 0;
     if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
-    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) GENERIC_ERROR;
-    glAttachShader(program, fragmentShader);
-    glAttachShader(program, vertexShader);
-    glLinkProgram(program);
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(loadShader(geometryShader, GL_GEOMETRY_SHADER, geometryShaderCode, sizeof(geometryShaderCode)), "Geometry Shader laden") != SUCCESS) return GENERIC_ERROR;
+    glAttachShader(drawRectanglesProgram, vertexShader);
+	glAttachShader(drawRectanglesProgram, fragmentShader);
+	glAttachShader(drawRectanglesProgram, geometryShader);
+    glLinkProgram(drawRectanglesProgram);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+	glDeleteShader(geometryShader);
+	return SUCCESS;
+}
+ErrCode renderRectangles(Window& window, RectangleData* rectangles, DWORD count){
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
-	float startX = (float)x/window.windowWidth*2-1;
-	float startY = (float)(window.windowHeight-y)/window.windowHeight*2-1;
-	float endX = (float)(x+dx)/window.windowWidth*2-1;
-	float endY = (float)(window.windowHeight-(y+dy))/window.windowHeight*2-1;
-
-    float vertices[] = {
-        startX, endY,
-        endX, endY,
-        endX, startY,
-        endX, startY,
-        startX, startY,
-        startX, endY
-    };
-    GLuint VBOPos, VAO;
+    GLuint VBOPos, VBOColor, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBOPos);
+	glGenBuffers(1, &VBOColor);
 
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(RectangleData), rectangles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(0, 4, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(RectangleData), 0);
 
-    glUseProgram(program);
+	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(RectangleData), rectangles, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribIPointer(1, 1, GL_UNSIGNED_INT, sizeof(RectangleData), (void*)8);
 
-    glUniform4f(glGetUniformLocation(program, "color"), R(color), G(color), B(color), A(color));
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glUseProgram(drawRectanglesProgram);
+
+	glUniform2f(glGetUniformLocation(drawRectanglesProgram, "wDimensions"), window.windowWidth, window.windowHeight);
+
+    glDrawArrays(GL_POINTS, 0, count);
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
-	glDeleteProgram(program);
+	glDeleteBuffers(1, &VBOColor);
 	return SUCCESS;
 }
 
-ErrCode drawCircle(Window& window, WORD x, WORD y, WORD rad, DWORD color){
+struct CircleData{
+	WORD x;
+	WORD y;
+	float radius;
+	DWORD color;
+};
+
+ErrCode initDrawCirclesProgram(){
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
 	"layout(location=0) in vec2 pos;"
-	"layout(location=1) in vec2 tex;"
-	"out vec2 texCoord;"
+	"layout(location=1) in float radius;"
+	"layout(location=2) in uint color;"
+	"out vec2 vPos;"
+	"out float vRadius;"
+	"out vec4 vColor;"
 	"void main(){"
-	"	texCoord = tex;"
-	"   gl_Position = vec4(pos, 1.0, 1.0);"
+	"	vPos = pos;"
+	"	vRadius = radius;"
+	"	float r = float((color>>16) & 0xFFu)/255.0;"
+	"	float g = float((color>>8) & 0xFFu)/255.0;"
+	"	float b = float((color) & 0xFFu)/255.0;"
+	"	float a = float((color>>24) & 0xFFu)/255.0;"
+	"	vColor = vec4(r, g, b, a);"
+	"   gl_Position = vec4(1.0);"
 	"}";
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
 	"out vec4 fragColor;"
 	"in vec2 texCoord;"
-	"uniform vec4 color;"
+	"in vec2 pos;"
+	"in float radius;"
+	"in vec4 color;"
 	"void main(){"
-	"	if(length(texCoord) > 1) discard;"
-	"   fragColor = vec4(color/255);"
+	"	if(distance(pos, texCoord) > radius) discard;"
+	"   fragColor = vec4(color);"
+	"}";
+	const GLchar geometryShaderCode[] = 
+	"#version 330\n"
+	"layout(points) in;"
+	"layout(triangle_strip, max_vertices = 4) out;"
+	"in vec2 vPos[];"
+	"in float vRadius[];"
+	"in vec4 vColor[];"
+	"out vec2 texCoord;"
+	"out vec2 pos;"
+	"out float radius;"
+	"out vec4 color;"
+	"uniform vec2 wDimensions;"
+	"void main(){"
+	"	radius = vRadius[0];"
+	"	color = vColor[0];"
+	"	float xMin = vPos[0].x-vRadius[0];"
+	"	float xMax = vPos[0].x+vRadius[0];"
+	"	float yMin = vPos[0].y-vRadius[0];"
+	"	float yMax = vPos[0].y+vRadius[0];"
+	"	float xMinPos = ((xMin*2.0)/wDimensions.x)-1.0;"
+	"	float yMinPos = (((wDimensions.y-yMin)*2.0)/wDimensions.y)-1.0;"
+	"	float xMaxPos = ((xMax*2.0)/wDimensions.x)-1.0;"
+	"	float yMaxPos = (((wDimensions.y-yMax)*2.0)/wDimensions.y)-1.0;"
+	"	pos = vPos[0];"
+	"	gl_Position = vec4(xMinPos, yMinPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMin, yMin);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMinPos, yMaxPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMin, yMax);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMinPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMax, yMin);"
+	"	EmitVertex();"
+	"	gl_Position = vec4(xMaxPos, yMaxPos, 1.0, 1.0);"
+	"	texCoord = vec2(xMax, yMax);"
+	"	EmitVertex();"
+	"	EndPrimitive();"
 	"}";
 
-	wglMakeCurrent(GetDC(window.handle), window.glContext);
-    GLuint program = glCreateProgram();
+    drawCirclesProgram = glCreateProgram();
     GLuint vertexShader = 0;
     GLuint fragmentShader = 0;
+	GLuint geometryShader = 0;
     if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
-    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) GENERIC_ERROR;
-    glAttachShader(program, fragmentShader);
-    glAttachShader(program, vertexShader);
-    glLinkProgram(program);
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(loadShader(geometryShader, GL_GEOMETRY_SHADER, geometryShaderCode, sizeof(geometryShaderCode)), "Geometry Shader laden") != SUCCESS) return GENERIC_ERROR;
+    glAttachShader(drawCirclesProgram, vertexShader);
+	glAttachShader(drawCirclesProgram, fragmentShader);
+	glAttachShader(drawCirclesProgram, geometryShader);
+    glLinkProgram(drawCirclesProgram);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+	glDeleteShader(geometryShader);
+	return SUCCESS;
+}
+ErrCode renderCircles(Window& window, CircleData* circles, DWORD count){
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
-	float startX = (float)(x-rad)/window.windowWidth*2-1;
-	float startY = (float)(window.windowHeight-(y-rad))/window.windowHeight*2-1;
-	float endX = (float)(x+rad)/window.windowWidth*2-1;
-	float endY = (float)(window.windowHeight-(y+rad))/window.windowHeight*2-1;
-
-    float vertices[] = {
-        startX, endY,
-        endX, endY,
-        endX, startY,
-        endX, startY,
-        startX, startY,
-        startX, endY
-    };
-    float texCoords[] = {
-        -1.f, 1.f,
-        1.f, 1.f,
-        1.f, -1.f,
-        1.f, -1.f,
-        -1.f, -1.f,
-        -1.f, 1.f
-    };
-    GLuint VBOPos, VBOTex, VAO;
+    GLuint VBOPos, VBOWidth, VBOColor, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBOPos);
-    glGenBuffers(1, &VBOTex);
+	glGenBuffers(1, &VBOWidth);
+	glGenBuffers(1, &VBOColor);
 
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(CircleData), circles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(0, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(CircleData), 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBOTex);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(texCoords), texCoords, GL_STATIC_DRAW);
+	glBindBuffer(GL_ARRAY_BUFFER, VBOWidth);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(CircleData), circles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(CircleData), (void*)4);
 
-    glUseProgram(program);
+	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(CircleData), circles, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(CircleData), (void*)8);
 
-    glUniform4f(glGetUniformLocation(program, "color"), R(color), G(color), B(color), A(color));
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glUseProgram(drawCirclesProgram);
+
+	glUniform2f(glGetUniformLocation(drawCirclesProgram, "wDimensions"), window.windowWidth, window.windowHeight);
+
+    glDrawArrays(GL_POINTS, 0, count);
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
-	glDeleteBuffers(1, &VBOTex);
-	glDeleteProgram(program);
+	glDeleteBuffers(1, &VBOWidth);
+	glDeleteBuffers(1, &VBOColor);
 	return SUCCESS;
 }
-
-ErrCode drawFontChar()noexcept{
-	return SUCCESS;
-}
-
-ErrCode drawWindow(Window& window)noexcept{
-	#ifdef INVALIDHANDLEERRORS
-	if(window.handle == NULL) return WINDOW_NOT_FOUND;
-	#endif
-	if(SwapBuffers(GetDC(window.handle)) == FALSE){
-		std::cerr << "SwapBuffers " << GetLastError() << std::endl;
-		return GENERIC_ERROR;
-	}
-	return SUCCESS;
-}
-
 
 struct LineData{
 	WORD x1;
@@ -677,13 +777,8 @@ struct LineData{
 	float width;
 	DWORD color;
 };
-static std::vector<LineData> lineData;
-ErrCode addLine(WORD x1, WORD y1, WORD x2, WORD y2, float width, DWORD color)noexcept{
-	lineData.push_back({x1, y1, x2, y2, width, color});
-	return SUCCESS;
-}
 
-ErrCode renderLines(Window& window){
+ErrCode initDrawLinesProgram(){
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
 	"layout(location=0) in vec4 pos;"
@@ -762,21 +857,24 @@ ErrCode renderLines(Window& window){
 	"	EndPrimitive();"
 	"}";
 
-	wglMakeCurrent(GetDC(window.handle), window.glContext);
-    GLuint program = glCreateProgram();
+    drawLinesProgram = glCreateProgram();
     GLuint vertexShader = 0;
     GLuint fragmentShader = 0;
 	GLuint geometryShader = 0;
     if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
     if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
 	if(ErrCheck(loadShader(geometryShader, GL_GEOMETRY_SHADER, geometryShaderCode, sizeof(geometryShaderCode)), "Geometry Shader laden") != SUCCESS) return GENERIC_ERROR;
-    glAttachShader(program, vertexShader);
-	glAttachShader(program, fragmentShader);
-	glAttachShader(program, geometryShader);
-    glLinkProgram(program);
+    glAttachShader(drawLinesProgram, vertexShader);
+	glAttachShader(drawLinesProgram, fragmentShader);
+	glAttachShader(drawLinesProgram, geometryShader);
+    glLinkProgram(drawLinesProgram);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 	glDeleteShader(geometryShader);
+	return SUCCESS;
+}
+ErrCode renderLines(Window& window, LineData* lines, DWORD count){
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
     GLuint VBOPos, VBOWidth, VBOColor, VAO;
     glGenVertexArrays(1, &VAO);
@@ -787,28 +885,28 @@ ErrCode renderLines(Window& window){
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(LineData), lines, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 4, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(LineData), 0);
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBOWidth);
-    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(LineData), lines, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(LineData), (void*)8);
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
-    glBufferData(GL_ARRAY_BUFFER, lineData.size()*sizeof(LineData), lineData.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(LineData), lines, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(2);
     glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(LineData), (void*)12);
 
-    glUseProgram(program);
+    glUseProgram(drawLinesProgram);
 
-	glUniform2f(glGetUniformLocation(program, "wDimensions"), window.windowWidth, window.windowHeight);
+	glUniform2f(glGetUniformLocation(drawLinesProgram, "wDimensions"), window.windowWidth, window.windowHeight);
 
-    glDrawArrays(GL_POINTS, 0, lineData.size());
+    glDrawArrays(GL_POINTS, 0, count);
 
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
@@ -818,7 +916,40 @@ ErrCode renderLines(Window& window){
 	glDeleteBuffers(1, &VBOPos);
 	glDeleteBuffers(1, &VBOWidth);
 	glDeleteBuffers(1, &VBOColor);
-	glDeleteProgram(program);
-	lineData.clear();
 	return SUCCESS;
+}
+
+ErrCode drawWindow(Window& window)noexcept{
+	#ifdef INVALIDHANDLEERRORS
+	if(window.handle == NULL) return WINDOW_NOT_FOUND;
+	#endif
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
+	if(SwapBuffers(GetDC(window.handle)) == FALSE){
+		std::cerr << "SwapBuffers " << GetLastError() << std::endl;
+		return GENERIC_ERROR;
+	}
+	return SUCCESS;
+}
+
+DWORD drawFontChar(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
+    Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[character]];
+    WORD startIdx = 0;
+    for(SWORD i=0; i < glyph.numContours; ++i){
+        WORD endIdx = glyph.endOfContours[i];
+        for(WORD j=startIdx; j < endIdx; ++j){
+            WORD end = j+1;
+            lines.push_back({(WORD)(glyph.xCoords[j]+x), (WORD)(glyph.yCoords[j]+y), (WORD)(glyph.xCoords[end]+x), (WORD)(glyph.yCoords[end]+y), 1, RGBA(255, 255, 255)});
+        }
+        lines.push_back({(WORD)(glyph.xCoords[endIdx]+x), (WORD)(glyph.yCoords[endIdx]+y), (WORD)(glyph.xCoords[startIdx]+x), (WORD)(glyph.yCoords[startIdx]+y), 1, RGBA(255, 255, 255)});
+        startIdx = endIdx+1;
+    }
+	return font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[character]].advanceWidth : font.horMetrics[0].advanceWidth;
+}
+
+DWORD drawFontString(Font& font, std::vector<LineData>& lines, const char* string, WORD x, WORD y){
+	DWORD offset = 0;
+	for(size_t i=0; i < strlen(string); ++i){
+		offset += drawFontChar(font, lines, string[i], x+offset, y);
+	}
+	return offset;
 }

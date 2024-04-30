@@ -1,27 +1,13 @@
 #include "windowgl.h"
 #include "font.h"
 
-void drawChar(Window& window, Font& font, BYTE c, WORD xOffset, WORD yOffset){
-    Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[c]];
-    WORD startIdx = 0;
-    for(SWORD i=0; i < glyph.numContours; ++i){
-        WORD endIdx = glyph.endOfContours[i];
-        for(WORD j=startIdx; j < endIdx; ++j){
-            WORD end = j+1;
-            addLine(glyph.xCoords[j]+xOffset, glyph.yCoords[j]+yOffset, glyph.xCoords[end]+xOffset, glyph.yCoords[end]+yOffset, 1, RGBA(255, 255, 255));
-        }
-        addLine(glyph.xCoords[endIdx]+xOffset, glyph.yCoords[endIdx]+yOffset, glyph.xCoords[startIdx]+xOffset, glyph.yCoords[startIdx]+yOffset, 1, RGBA(255, 255, 255));
-        startIdx = endIdx+1;
-    }
-    // for(SWORD i=0; i < glyph.numPoints; ++i){
-    //     drawCircle(window, glyph.xCoords[i]+xOffset, glyph.yCoords[i]+yOffset, 4, RGBA(0, 180, 255));
-    // }
-}
+std::vector<LineData> lines;
+std::vector<CircleData> circles;
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){
     Window window;
     if(ErrCheck(createWindow(window, hInstance, 1000, 1000, 0, 0, 1, "Fenster"), "Fenster öffnen") != SUCCESS) return -1;
-    init();
+    if(init() != SUCCESS) return -1;
 
     Image image;
     if(ErrCheck(loadImage("images/cat.tex", image), "Image laden") != SUCCESS) return -1;
@@ -55,7 +41,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
 
     bool LmbPressed = false;
-    char text[] = "The quick brown fox jumps over the lazy dog.";
+    std::string text = "Kann ich jetzt die Buchstaben äÄöÖüÜ zeigen? o:";
 
     Timer timer;
     while(1){
@@ -71,28 +57,23 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         resetTimer(timer);
         clearWindow(window);
 
-        DWORD xOffset = 20;
-        
-        for(int i=0; i < strlen(text); ++i){
-            drawChar(window, font, text[i], xOffset, 0);
-            Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
-            addLine(glyph.xMin+xOffset, glyph.yMin, glyph.xMax+xOffset, glyph.yMin, 1, RGBA(0, 255, 0));
-            addLine(glyph.xMin+xOffset, glyph.yMax, glyph.xMax+xOffset, glyph.yMax, 1, RGBA(255, 0, 0));
-            if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
-            else xOffset += font.horMetrics[0].advanceWidth;
-        }
-        xOffset = 20;
-        for(int i=0; i < strlen(text); ++i){
-            drawChar(window, font, text[i], xOffset, (yMax-yMin)/scalingFactor);
-            Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[text[i]]];
-            addLine(glyph.xMin+xOffset, glyph.yMin+(yMax-yMin)/scalingFactor, glyph.xMax+xOffset, glyph.yMin+(yMax-yMin)/scalingFactor, 1, RGBA(0, 255, 0));
-            addLine(glyph.xMin+xOffset, glyph.yMax+(yMax-yMin)/scalingFactor, glyph.xMax+xOffset, glyph.yMax+(yMax-yMin)/scalingFactor, 1, RGBA(255, 0, 0));
-            if(font.horMetricsCount > 1) xOffset += font.horMetrics[font.asciiToGlyphMapping[text[i]]].advanceWidth;
-            else xOffset += font.horMetrics[0].advanceWidth;
-        }
+        drawFontString(font, lines, text.c_str(), 20, 20);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*2);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*3);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*4);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*5);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*6);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*7);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*8);
+        drawFontString(font, lines, text.c_str(), 20, 20+(yMax-yMin)/scalingFactor*9);
 
-        renderLines(window);
+
+        renderCircles(window, circles.data(), circles.size());
+        renderLines(window, lines.data(), lines.size());
         drawWindow(window);
+        circles.clear();
+        lines.clear();
         // std::cout << getTimerMillis(timer) << std::endl;
         Sleep(16);
     }
