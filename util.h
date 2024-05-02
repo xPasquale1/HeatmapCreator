@@ -137,6 +137,7 @@ inline const char* longToString(long value){
 }
 
 //value hat decimals Nachkommestellen
+//TODO das sieht ein bisschen zu komplex aus für das was es eigentlich machen sollte
 inline std::string intToString(int value, BYTE decimals=2){
 	std::string out = longToString(value);
 	if(out.size() < ((size_t)decimals+1) && out[0] != '-') out.insert(0, (decimals+1)-out.size(), '0');
@@ -145,6 +146,7 @@ inline std::string intToString(int value, BYTE decimals=2){
 	return out;
 }
 
+//TODO sollte Fälle wie NAN, INF,... zuvor testen
 inline std::string floatToString(float value, BYTE decimals=2){
 	WORD precision = pow(10, decimals);
 	long val = value * precision;
@@ -215,29 +217,29 @@ void resetTimer(Timer& timer)noexcept{
 	QueryPerformanceCounter(&timer.startTime);
 }
 //Gibt den Zeitunterschied seid dem Startzeitpunkt in Millisekunden zurück
-float getTimerMillis(Timer& timer)noexcept{
+DWORD getTimerMillis(Timer& timer)noexcept{
 	LARGE_INTEGER endTime;
 	QueryPerformanceCounter(&endTime);
 	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
 	timediff *= 1000;
-	return ((float)timediff / timer.frequency.QuadPart);
+	return (timediff / timer.frequency.QuadPart);
 }
 //Gibt den Zeitunterschied seid dem Startzeitpunkt in Mikrosekunden zurück
-float getTimerMicros(Timer& timer)noexcept{
+DWORD getTimerMicros(Timer& timer)noexcept{
 	LARGE_INTEGER endTime;
 	QueryPerformanceCounter(&endTime);
 	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
 	timediff *= 1000000;
-	return ((float)timediff / timer.frequency.QuadPart);
+	return (timediff / timer.frequency.QuadPart);
 }
 //Gibt den Zeitunterschied seid dem Startzeitpunkt in "Nanosekunden" zurück
 //(leider hängt alles von QueryPerformanceFrequency() ab, also kann es sein, dass man nur Intervalle von Nanosekunden bekommt)
-float getTimerNanos(Timer& timer)noexcept{
+DWORD getTimerNanos(Timer& timer)noexcept{
 	LARGE_INTEGER endTime;
 	QueryPerformanceCounter(&endTime);
 	LONGLONG timediff = endTime.QuadPart - timer.startTime.QuadPart;
 	timediff *= 1000000000;
-	return ((float)timediff / timer.frequency.QuadPart);
+	return (timediff / timer.frequency.QuadPart);
 }
 
 struct HashmapData{

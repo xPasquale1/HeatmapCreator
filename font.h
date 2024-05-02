@@ -196,9 +196,11 @@ struct HorMetric{
     SWORD leftSideBearing;
 };
 
+//TODO sollte eine Mapping-Tabelle für alle Unicode Zeichen haben, kann man vllt mit einer Hashmap umsetzen, da es ja nicht alle Unicode-Zeichen geben muss
 struct Font{
     WORD asciiToGlyphMapping[256];
-    WORD unitsPerEm;
+    WORD unitsPerEm;		//TODO eigentlich wird das ja nie benutzt
+	float scalingFactor;
     SWORD xMin;
     SWORD yMin;
     SWORD xMax;
@@ -206,6 +208,7 @@ struct Font{
     GlyphStorage glyphStorage;
     WORD horMetricsCount = 0;
     HorMetric* horMetrics = nullptr;
+	WORD verticalSpacing = 0;
 };
 
 void destroyFont(Font& font){
@@ -412,7 +415,59 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         font.horMetrics[i].leftSideBearing = readInt16(file);
     }
 
+	//Berechne yMin und yMax für die relevanten Glyphen
+    SWORD yMin = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMin;
+    SWORD yMax = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMax;
+    for(WORD i=1; i < 256; ++i){
+        SWORD min = font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].yMin;
+        SWORD max = font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].yMax;
+        if(min < yMin) yMin = min;
+        if(max > yMax) yMax = max;
+    }
+	font.yMax = yMax;
+	font.yMin = yMin;
+	//Skaliere die Glyphen auf eine 32 Pixelgröße und drehe diese um
+	font.scalingFactor = (float)(font.yMax-font.yMin)/32.f;
+	for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth /= font.scalingFactor;
+	font.verticalSpacing = (yMax-yMin)/font.scalingFactor;
+	for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
+        Glyph& glyph = font.glyphStorage.glyphs[i];
+        glyph.yMin = (0-glyph.yMin)+font.yMax;
+        glyph.yMax = (0-glyph.yMax)+font.yMax;
+        glyph.yMin /= font.scalingFactor;
+        glyph.yMax /= font.scalingFactor;
+        glyph.xMin /= font.scalingFactor;
+        glyph.xMax /= font.scalingFactor;
+        for(WORD j=0; j < glyph.numPoints; ++j){
+            glyph.yCoords[j] = (0-glyph.yCoords[j])+font.yMax;
+            glyph.xCoords[j] /= font.scalingFactor;
+            glyph.yCoords[j] /= font.scalingFactor;
+        }
+    }
+
 	destroyHashmap(map);
 	file.close();
+	return SUCCESS;
+}
+
+//TODO das sollte alles auf der GPU berechnet werden, auch das Zeichen etc.
+ErrCode setFontSize(Font& font, WORD pixelSize)noexcept{
+	float newScalingFactor = (float)(font.yMax-font.yMin)/pixelSize;
+	float scalingDiff = font.scalingFactor/newScalingFactor;
+	font.scalingFactor = newScalingFactor;
+	for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth *= scalingDiff;
+	font.verticalSpacing *= scalingDiff;
+	
+	for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
+        Glyph& glyph = font.glyphStorage.glyphs[i];
+        glyph.yMin /= font.scalingFactor;
+        glyph.yMax /= font.scalingFactor;
+        glyph.xMin /= font.scalingFactor;
+        glyph.xMax /= font.scalingFactor;
+        for(WORD j=0; j < glyph.numPoints; ++j){
+            glyph.xCoords[j] /= font.scalingFactor;
+            glyph.yCoords[j] /= font.scalingFactor;
+        }
+    }
 	return SUCCESS;
 }

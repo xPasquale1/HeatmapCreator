@@ -1,6 +1,6 @@
 #include "network.h"
-#include "window.h"
-#include "usb.h"
+#include "windowgl.h"
+#include "font.h"
 #include <thread>
 #include <algorithm>
 
@@ -22,9 +22,13 @@
     Man sollte die Auflösung der Messpunkte festlegen können
 */
 
-Window* window = nullptr;
-Font* font = nullptr;
+Window window;
+Font font;
 UDPServer mainServer;
+
+std::vector<LineData> lines;
+std::vector<CircleData> circles;
+std::vector<RectangleData> rectangles;
 
 //TODO Annahme Signalstärke von -20dB bis -90dB
 #define MAXDB 90
@@ -555,18 +559,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
-    if(ErrCheck(createWindow(hInstance, 1200, 1000, 300, 100, 1, window, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
-    if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
+    // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
+    if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
+    if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
+    // if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
     
-    if(ErrCheck(createFont(font), "Font erstellen") != SUCCESS) return -1;
-    if(ErrCheck(loadFont("fonts/ascii.tex", *font, {82, 83}), "Font laden") != SUCCESS) return -1;
-    font->font_size = 42/window->pixelSize;
+    // if(ErrCheck(createFont(font), "Font erstellen") != SUCCESS) return -1;
+    if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
     Image floorplan;
     if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
     for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
-        floorplan.data[i] *= 4;     //Macht das Bild heller
+        DWORD color =  floorplan.data[i];
+        floorplan.data[i] = RGBA(R(color)*4, G(color)*4, B(color)*4, 65);   //Macht das Bild heller und Durchsichtig
     }
 
     Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
@@ -577,80 +582,80 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
 
     Button buttons[11];
-    ivec2 buttonSize = {180/window->pixelSize, 60/window->pixelSize};
-    ivec2 buttonPos = {10/window->pixelSize, 80/window->pixelSize};
+    ivec2 buttonSize = {180, 60};
+    ivec2 buttonPos = {10, 80};
     buttons[0].pos = buttonPos;
     buttons[0].size = buttonSize;
     buttons[0].text = "Datenpunkte";
     buttons[0].event = toggleHeatmap;
     buttons[0].data = &buttons[0];
-    buttons[0].textsize = 30/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[0].textsize = 30;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[1].pos = buttonPos;
     buttons[1].size = buttonSize;
     buttons[1].text = "Heatmap gen.";
     buttons[1].event = generateHeatmap;
     buttons[1].data = heatmapsInterpolated;
-    buttons[1].textsize = 26/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[1].textsize = 26;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[2].pos = buttonPos;
     buttons[2].size = buttonSize;
     buttons[2].text = "Loeschen";
     buttons[2].event = clearHeatmaps;
-    buttons[2].textsize = 32/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[2].textsize = 32;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[3].pos = buttonPos;
     buttons[3].size = buttonSize;
     buttons[3].text = "Speichern";
     buttons[3].event = saveHeatmaps;
-    buttons[3].textsize = 32/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[3].textsize = 32;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[4].pos = buttonPos;
     buttons[4].size = buttonSize;
     buttons[4].text = "Laden";
     buttons[4].event = loadHeatmaps;
-    buttons[4].textsize = 32/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[4].textsize = 32;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[5].pos = buttonPos;
     buttons[5].size = buttonSize;
     buttons[5].text = "Heatmap 0";
     buttons[5].event = iterateHeatmaps;
     buttons[5].data = &buttons[5];
-    buttons[5].textsize = 32/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[5].textsize = 32;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[6].pos = buttonPos;
     buttons[6].size = buttonSize;
     buttons[6].text = "Heatmap-Mode";
     buttons[6].event = toggleMode;
     buttons[6].data = &buttons[6];
-    buttons[6].textsize = 24/window->pixelSize;
+    buttons[6].textsize = 24;
 
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[7].pos = buttonPos;
     buttons[7].size = {buttonSize.y, buttonSize.y};
     buttons[7].text = "+";
     buttons[7].event = incSearchRadius;
-    buttons[7].textsize = 24/window->pixelSize;
-    buttons[8].pos = {(int)(buttonPos.x+buttonSize.y+buttonSize.y*0.125/window->pixelSize), buttonPos.y};
+    buttons[7].textsize = 24;
+    buttons[8].pos = {(int)(buttonPos.x+buttonSize.y+buttonSize.y*0.125), buttonPos.y};
     buttons[8].size = {buttonSize.y, buttonSize.y};
     buttons[8].text = "-";
     buttons[8].event = decSearchRadius;
-    buttons[8].textsize = 24/window->pixelSize;
+    buttons[8].textsize = 24;
 
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[9].pos = buttonPos;
     buttons[9].size = buttonSize;
     buttons[9].text = "Einzeln";
     buttons[9].event = toggleDifferenceMode;
     buttons[9].data = &buttons[9];
-    buttons[9].textsize = 32/window->pixelSize;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125/window->pixelSize;
+    buttons[9].textsize = 32;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[10].pos = buttonPos;
     buttons[10].size = buttonSize;
     buttons[10].text = "Gewichtung an";
     buttons[10].event = toggleWeightingQuality;
     buttons[10].data = &buttons[10];
-    buttons[10].textsize = 24/window->pixelSize;
+    buttons[10].textsize = 24;
 
     std::thread getStrengthThread(processNetworkPackets);
 
@@ -660,16 +665,20 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     distanceImage.data = new DWORD[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
     float* distances = new float[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
 
+    Timer timer;
+    DWORD deltaTime = 1;
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     while(running){
-        FILETIME ft;
-        GetSystemTimeAsFileTime(&ft);
-        QWORD startTime = ((QWORD)ft.dwHighDateTime<<32) | ft.dwLowDateTime;
+        resetTimer(timer);
 
         getMessages(window);
-        updateButtons(window, *font, buttons, sizeof(buttons)/sizeof(Button));
+        updateButtons(window, font, lines, rectangles, buttons, sizeof(buttons)/sizeof(Button));
         clearWindow(window);
 
-        if(showHeatmap) copyImageToWindow(window, heatmapsInterpolated[showHeatmapIdx], 200/window->pixelSize, 0, window->windowWidth/window->pixelSize, window->windowHeight/window->pixelSize, 0.5);
+        if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
         else{
             Image dataPointsImage;
             dataPointsImage.width = DATAPOINTRESOLUTIONX;
@@ -684,55 +693,62 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 color = rssiToColorComponent(color);
                 dataPointsImage.data[dataPoint.y*DATAPOINTRESOLUTIONX+dataPoint.x] = RGBA(color, 255-color, 0);
             }
-            copyImageToWindow(window, dataPointsImage, 200/window->pixelSize, 0, window->windowWidth/window->pixelSize, window->windowHeight/window->pixelSize);
+            drawImage(window, dataPointsImage, 200, 0, window.windowWidth, window.windowHeight);
             destroyImage(dataPointsImage);
         }
 
         if(mode == SEARCHMODE){
             calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
-            copyImageToWindow(window, distanceImage, 200/window->pixelSize, 0, window->windowWidth/window->pixelSize, window->windowHeight/window->pixelSize);
+            drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
         }else{
-            WORD tileSizeX = (window->windowWidth-200)/window->pixelSize/DATAPOINTRESOLUTIONX;
-            WORD tileSizeY = window->windowHeight/window->pixelSize/DATAPOINTRESOLUTIONY;
-            if(blink%32 < 8) drawRectangle(window, 200/window->pixelSize+gx*tileSizeX, gy*tileSizeY, tileSizeX, tileSizeY, RGBA(0, 0, 255));
+            WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
+            WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
+            if(blink%32 < 8) rectangles.push_back({(WORD)(200+gx*tileSizeX), (WORD)(gy*tileSizeY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
             blink++;
         }
 
-        copyImageToWindow(window, floorplan, 200/window->pixelSize, 0, window->windowWidth/window->pixelSize, window->windowHeight/window->pixelSize, 0.25);
+        drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
 
-        drawButtons(window, *font, buttons, sizeof(buttons)/sizeof(Button));
         int selectedStrength = 90;
         Datapoint* point = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(gx, gy));
         if(point){
             selectedStrength = point->rssi[showHeatmapIdx];
         }
-        DWORD offset = drawFontString(window, *font, longToString(-selectedStrength), 10/window->pixelSize, 10/window->pixelSize);
-        drawFontString(window, *font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 10/window->pixelSize+offset+16/window->pixelSize, 10/window->pixelSize);
+        DWORD offset = drawFontString(font, lines, longToString(-selectedStrength), 10, 10);
+        drawFontString(font, lines, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
 
-        offset = drawFontString(window, *font, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125/window->pixelSize), buttons[7].pos.y);
-        buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25/window->pixelSize+offset), buttons[7].pos.y};
+        offset += drawFontString(font, lines, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
+        buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
-            int x = mouse.x-200/window->pixelSize;
+            int x = mouse.x-200;
             int y = mouse.y;
             if(x >= 0){
-                gx = (float)x/(window->windowWidth/window->pixelSize-200/window->pixelSize)*(DATAPOINTRESOLUTIONX);
-                gy = (float)y/(window->windowHeight/window->pixelSize)*(DATAPOINTRESOLUTIONY);
+                gx = (float)x/(window.windowWidth-200)*(DATAPOINTRESOLUTIONX);
+                gy = (float)y/(window.windowHeight)*(DATAPOINTRESOLUTIONY);
                 delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
             }
         }
         
+        std::string fpsTime = "FPS: ";
+        WORD fps = deltaTime != 0 ? 1000/deltaTime : 1000;
+        fpsTime += longToString(fps);
+        drawFontString(font, lines, fpsTime.c_str(), 40+offset, 10);
 
+        renderRectangles(window, rectangles.data(), rectangles.size());
+        renderLines(window, lines.data(), lines.size());
+        renderCircles(window, circles.data(), circles.size());
         drawWindow(window);
+        lines.clear();
+        rectangles.clear();
+        circles.clear();
         if(getWindowFlag(window, WINDOW_CLOSE)) running = false;
         //TODO muss nicht ständig aufgerufen werden...
         if(!SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)) ErrCheck(GENERIC_ERROR, "Exectution State setzen");
 
         //TODO das ist so ziemlich immer > 16 -> render thread
-        GetSystemTimeAsFileTime(&ft);
-        DWORD timediff = ((((QWORD)ft.dwHighDateTime<<32) | ft.dwLowDateTime)-startTime)/10000;
-        if(timediff > 16) timediff = 16;
-        Sleep(16-timediff);
+        deltaTime = getTimerMillis(timer);
+        Sleep(16);
     }
 
     destroyImage(distanceImage);
