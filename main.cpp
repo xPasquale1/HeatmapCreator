@@ -731,7 +731,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         }
         
         std::string fpsTime = "FPS: ";
-        WORD fps = deltaTime != 0 ? 1000/deltaTime : 1000;
+        WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
         drawFontString(font, lines, fpsTime.c_str(), 40+offset, 10);
 
@@ -746,9 +746,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         //TODO muss nicht ständig aufgerufen werden...
         if(!SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)) ErrCheck(GENERIC_ERROR, "Exectution State setzen");
 
-        //TODO das ist so ziemlich immer > 16 -> render thread
-        deltaTime = getTimerMillis(timer);
-        Sleep(16);
+        deltaTime = getTimerMicros(timer);
+        DWORD timediff = deltaTime > 16000 ? 16000 : deltaTime;
+
+        Sleep((16000-timediff)/1000);
     }
 
     destroyImage(distanceImage);

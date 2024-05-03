@@ -4,6 +4,8 @@
 #include "util.h"
 #include "math.h"
 
+//TODO namespace
+
 struct TableOffset{
 	DWORD tag;
 	DWORD offset;
@@ -56,30 +58,19 @@ DWORD readUint32(std::fstream& file){
     return swapEndian(&ret);
 }
 
-void readCoordinate(std::fstream& file, SWORD* coords, BYTE* flags, BYTE flagBitOffset, SWORD numPoints)noexcept{
-	SWORD prevVal = 0;
-	for(SWORD i=0; i < numPoints; ++i){
-		if(flagBitSet(flags[i], 1+flagBitOffset)){
-			BYTE tmp;
-			tmp = readUint8(file);
-			coords[i] = tmp;
-			if(!flagBitSet(flags[i], 4+flagBitOffset)) coords[i] = 0-coords[i];
-		}else{
-			if(flagBitSet(flags[i], 4+flagBitOffset)){
-				coords[i] = prevVal;
-				continue;
-			}
-			coords[i] = readInt16(file);
-		}
-		coords[i] = prevVal + coords[i];
-		prevVal = coords[i];
-	}
-}
+enum POINTTYPE : BYTE{
+	OFFCURVE=0,
+	ONCURVE=1
+};
+struct Glyphpoint{
+	POINTTYPE type;
+	SWORD x;
+	SWORD y;
+};
 
 struct Glyph{
 	SWORD numPoints = 0;
-	SWORD* xCoords = nullptr;
-	SWORD* yCoords = nullptr;
+	Glyphpoint* points = nullptr;
 	SWORD xMin = 0;
 	SWORD yMin = 0;
 	SWORD xMax = 0;
@@ -88,31 +79,46 @@ struct Glyph{
 	WORD* endOfContours = nullptr;
 };
 
-void createGlyph(Glyph& glyph, SWORD numPoints, SWORD* xCoords, SWORD* yCoords, SWORD xMin, SWORD yMin, SWORD xMax, SWORD yMax, SWORD numContours, WORD* endOfContours)noexcept{
-	glyph.numPoints = numPoints;
-	glyph.xCoords = new SWORD[numPoints];
-	glyph.yCoords = new SWORD[numPoints];
+void readCoordinates(std::fstream& file, const BYTE* flags, Glyphpoint* coords, BYTE isY, SWORD numPoints)noexcept{
+	if(numPoints <= 0) return;
+	SWORD prevVal = 0;
+	POINTTYPE prevType = OFFCURVE;			//TODO aktuell geht das davon aus, dass jede Kontur mit einem on-curve-point anfängt
+	WORD realPointNumber = 0;
 	for(SWORD i=0; i < numPoints; ++i){
-		glyph.xCoords[i] = xCoords[i];
-		glyph.yCoords[i] = yCoords[i];
+		POINTTYPE type = (POINTTYPE)flagBitSet(flags[i], 0);
+		SWORD tmpCoord;
+		if(flagBitSet(flags[i], 1+isY)){
+			tmpCoord = readUint8(file);
+			if(!flagBitSet(flags[i], 4+isY)) tmpCoord = 0-tmpCoord;
+		}else{
+			if(flagBitSet(flags[i], 4+isY)){
+				*((&coords[realPointNumber].x)+isY) = prevVal;
+				coords[realPointNumber].type = type;
+				realPointNumber++;
+                prevType = type;
+				continue;
+			}
+			tmpCoord = readInt16(file);
+		}
+		SWORD coord = prevVal + tmpCoord;
+		prevType = type;
+		*((&coords[realPointNumber].x)+isY) = coord;
+		prevVal = coord;
+		coords[realPointNumber].type = type;
+		realPointNumber++;
 	}
-	glyph.xMin = xMin;
-	glyph.yMin = yMin;
-	glyph.xMax = xMax;
-	glyph.yMax = yMax;
+}
+
+//Allokiert nur die Konturen
+void createGlyph(Glyph& glyph, SWORD numContours)noexcept{
 	glyph.numContours = numContours;
 	glyph.endOfContours = new WORD[numContours];
-	for(WORD i=0; i < numContours; ++i){
-		glyph.endOfContours[i] = endOfContours[i];
-	}
 }
 
 void destroyGlyph(Glyph& glyph)noexcept{
 	glyph.numPoints = 0;
-	delete[] glyph.xCoords;
-	delete[] glyph.yCoords;
-	glyph.xCoords = nullptr;
-	glyph.yCoords = nullptr;
+	delete[] glyph.points;
+	glyph.points = nullptr;
 	glyph.numContours = 0;
 	delete[] glyph.endOfContours;
 	glyph.endOfContours = nullptr;
@@ -137,29 +143,26 @@ void destroyGlyphStorage(GlyphStorage& storage)noexcept{
 }
 
 void readSimpleGlyph(std::fstream& file, Glyph& glyph, SWORD numberOfContours)noexcept{
-    SWORD xMin, yMin, xMax, yMax;
-	xMin = readInt16(file);
-	// std::cout << "xMin: " << xMin << std::endl;
-	yMin = readInt16(file);
-	// std::cout << "yMin: " << yMin << std::endl;
-	xMax = readInt16(file);
-	// std::cout << "xMax: " << xMax << std::endl;
-	yMax = readInt16(file);
-	// std::cout << "yMax: " << yMax << std::endl;
+	glyph.xMin = readInt16(file);
+	glyph.yMin = readInt16(file);
+	glyph.xMax = readInt16(file);
+	glyph.yMax = readInt16(file);
 	WORD endPtsOfContours[numberOfContours];
 	for(SWORD i=0; i < numberOfContours; ++i){
 		endPtsOfContours[i] = readUint16(file);
-		// std::cout << endPtsOfContours[i] << " ";
 	}
-    // std::cout << std::endl;
-	DWORD numPoints = endPtsOfContours[numberOfContours-1] + 1;
+	WORD numPoints = endPtsOfContours[numberOfContours-1] + 1;
+	createGlyph(glyph, numberOfContours);
+	for(SWORD i=0; i < numberOfContours; ++i){
+		glyph.endOfContours[i] = endPtsOfContours[i];
+	}
 	WORD instructionLength = readUint16(file);
 	BYTE instructions[instructionLength];
 	for(WORD i=0; i < instructionLength; ++i){
 		instructions[i] = readUint8(file);
 	}
 	BYTE flags[numPoints];
-	for(DWORD i=0; i < numPoints; ++i){
+	for(WORD i=0; i < numPoints; ++i){
 		flags[i] = readUint8(file);
 		if(flagBitSet(flags[i], 3)){
 			BYTE flag = flags[i];
@@ -169,14 +172,41 @@ void readSimpleGlyph(std::fstream& file, Glyph& glyph, SWORD numberOfContours)no
 			}
 		}
 	}
-	SWORD xCoords[numPoints]{0};
-	SWORD yCoords[numPoints]{0};
-	readCoordinate(file, xCoords, flags, 0, numPoints);
-	readCoordinate(file, yCoords, flags, 1, numPoints);
-	// for(SWORD i=0; i < numPoints; ++i){
-	// 	std::cout << "(" << xCoords[i] << ", " << yCoords[i] << ")" << std::endl;
-	// }
-	createGlyph(glyph, numPoints, xCoords, yCoords, xMin, yMin, xMax, yMax, numberOfContours, endPtsOfContours);
+	Glyphpoint buffer[numPoints];
+	readCoordinates(file, flags, buffer, 0, numPoints);
+	readCoordinates(file, flags, buffer, 1, numPoints);
+    
+    //Berechne implizite Punkte
+    Glyphpoint pointBuffer[numPoints*2];
+    WORD startIdx = 0;
+    WORD realNumPoints = 0;
+    for(SWORD i=0; i < numberOfContours; ++i){
+        WORD endIdx = glyph.endOfContours[i];
+        pointBuffer[realNumPoints++] = buffer[startIdx];
+        for(WORD j=startIdx+1; j <= endIdx; ++j){
+            if(buffer[j].type == buffer[j-1].type){
+                pointBuffer[realNumPoints].x = (buffer[j].x + buffer[j-1].x)/2;
+                pointBuffer[realNumPoints].y = (buffer[j].y + buffer[j-1].y)/2;
+                pointBuffer[realNumPoints].type = (POINTTYPE)!buffer[j].type;
+                realNumPoints++;
+            }
+            pointBuffer[realNumPoints++] = buffer[j];
+        }
+        if(buffer[endIdx].type == buffer[startIdx].type){
+            pointBuffer[realNumPoints].x = (buffer[endIdx].x + buffer[startIdx].x)/2;
+            pointBuffer[realNumPoints].y = (buffer[endIdx].y + buffer[startIdx].y)/2;
+            pointBuffer[realNumPoints].type = (POINTTYPE)!buffer[endIdx].type;
+            realNumPoints++;
+        }
+        glyph.endOfContours[i] = realNumPoints-1;
+        startIdx = endIdx + 1;
+    }
+
+    //Kopiere alle Punkte in den Glyphen
+    delete[] glyph.points;
+    glyph.points = new Glyphpoint[realNumPoints];
+    glyph.numPoints = realNumPoints;
+    for(WORD i=0; i < realNumPoints; ++i) glyph.points[i] = pointBuffer[i];
 }
 
 void readCompoundGlyph(std::fstream& file)noexcept{
@@ -217,7 +247,7 @@ void destroyFont(Font& font){
     font.horMetricsCount = 0;
 }
 
-ErrCode loadTTF(Font& font, const char* name)noexcept{
+ErrCode loadTTF(Font& font, const char* name, WORD pixelSize = 32)noexcept{
 	std::fstream file;
     file.open(name, std::ios::in | std::ios::binary);
     if(!file.is_open()) return FILE_NOT_FOUND;
@@ -313,6 +343,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         if(numberOfContours > 0 && emptyGlyphs[i] == false){
             readSimpleGlyph(file, font.glyphStorage.glyphs[i], numberOfContours);
         }else if(numberOfContours == 0){
+            //TODO uhh... das ist ein simple Glyph laut Doku
         }else{
             readCompoundGlyph(file);
         }
@@ -415,7 +446,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         font.horMetrics[i].leftSideBearing = readInt16(file);
     }
 
-	//Berechne yMin und yMax für die relevanten Glyphen
+	//Berechne yMin und yMax für die ASCII Glyphen
     SWORD yMin = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMin;
     SWORD yMax = font.glyphStorage.glyphs[font.asciiToGlyphMapping[0]].yMax;
     for(WORD i=1; i < 256; ++i){
@@ -427,7 +458,7 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
 	font.yMax = yMax;
 	font.yMin = yMin;
 	//Skaliere die Glyphen auf eine 32 Pixelgröße und drehe diese um
-	font.scalingFactor = (float)(font.yMax-font.yMin)/32.f;
+	font.scalingFactor = (float)(font.yMax-font.yMin)/pixelSize;
 	for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth /= font.scalingFactor;
 	font.verticalSpacing = (yMax-yMin)/font.scalingFactor;
 	for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
@@ -439,9 +470,9 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
         glyph.xMin /= font.scalingFactor;
         glyph.xMax /= font.scalingFactor;
         for(WORD j=0; j < glyph.numPoints; ++j){
-            glyph.yCoords[j] = (0-glyph.yCoords[j])+font.yMax;
-            glyph.xCoords[j] /= font.scalingFactor;
-            glyph.yCoords[j] /= font.scalingFactor;
+            glyph.points[j].y = (0-glyph.points[j].y)+font.yMax;
+            glyph.points[j].x /= font.scalingFactor;
+            glyph.points[j].y /= font.scalingFactor;
         }
     }
 
@@ -450,24 +481,38 @@ ErrCode loadTTF(Font& font, const char* name)noexcept{
 	return SUCCESS;
 }
 
-//TODO das sollte alles auf der GPU berechnet werden, auch das Zeichen etc.
-ErrCode setFontSize(Font& font, WORD pixelSize)noexcept{
-	float newScalingFactor = (float)(font.yMax-font.yMin)/pixelSize;
-	float scalingDiff = font.scalingFactor/newScalingFactor;
-	font.scalingFactor = newScalingFactor;
-	for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth *= scalingDiff;
-	font.verticalSpacing *= scalingDiff;
-	
+//TODO Das "muss"/sollte im Shader berechnet werden, da sich zu viele Rundungsfehler aufrechnen, da ja fast alles WORDs/SWORDs sind
+void resizeFont(Font& font, WORD pixelSize){
+    for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth *= font.scalingFactor;
+    for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
+        Glyph& glyph = font.glyphStorage.glyphs[i];
+        glyph.yMin *= font.scalingFactor;
+        glyph.yMax *= font.scalingFactor;
+        glyph.xMin *= font.scalingFactor;
+        glyph.xMax *= font.scalingFactor;
+        glyph.yMin -= font.yMax;
+        glyph.yMax -= font.yMax;
+        for(WORD j=0; j < glyph.numPoints; ++j){
+            glyph.points[j].x *= font.scalingFactor;
+            glyph.points[j].y *= font.scalingFactor;
+            glyph.points[j].y -= font.yMax;
+        }
+    }
+
+    font.scalingFactor = (float)(font.yMax-font.yMin)/pixelSize;
+	for(WORD i=0; i < font.horMetricsCount; ++i) font.horMetrics[i].advanceWidth /= font.scalingFactor;
 	for(WORD i=0; i < font.glyphStorage.glyphCount; ++i){
         Glyph& glyph = font.glyphStorage.glyphs[i];
+        glyph.yMin += font.yMax;
+        glyph.yMax += font.yMax;
         glyph.yMin /= font.scalingFactor;
         glyph.yMax /= font.scalingFactor;
         glyph.xMin /= font.scalingFactor;
         glyph.xMax /= font.scalingFactor;
         for(WORD j=0; j < glyph.numPoints; ++j){
-            glyph.xCoords[j] /= font.scalingFactor;
-            glyph.yCoords[j] /= font.scalingFactor;
+            glyph.points[j].y += font.yMax;
+            glyph.points[j].x /= font.scalingFactor;
+            glyph.points[j].y /= font.scalingFactor;
         }
     }
-	return SUCCESS;
 }

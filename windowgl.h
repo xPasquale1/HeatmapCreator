@@ -933,16 +933,33 @@ ErrCode drawWindow(Window& window)noexcept{
 	return SUCCESS;
 }
 
+void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD py2, WORD cx1, WORD cy1){
+    WORD steps = 2;
+    WORD prevX = px1;
+    WORD prevY = py1;
+    for(WORD i=1; i <= steps; ++i){
+        float t = (float)i/steps;
+        WORD mx1 = interpolateLinear(px1, cx1, t);
+        WORD my1 = interpolateLinear(py1, cy1, t);
+        WORD mx2 = interpolateLinear(cx1, px2, t);
+        WORD my2 = interpolateLinear(cy1, py2, t);
+        WORD x = interpolateLinear(mx1, mx2, t);
+        WORD y = interpolateLinear(my1, my2, t);
+        lines.push_back({x, y, prevX, prevY, 1, RGBA(255, 255, 255)});
+        prevX = x;
+        prevY = y;
+    }
+}
+
 DWORD drawFontChar(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
     Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[character]];
     WORD startIdx = 0;
     for(SWORD i=0; i < glyph.numContours; ++i){
         WORD endIdx = glyph.endOfContours[i];
-        for(WORD j=startIdx; j < endIdx; ++j){
-            WORD end = j+1;
-            lines.push_back({(WORD)(glyph.xCoords[j]+x), (WORD)(glyph.yCoords[j]+y), (WORD)(glyph.xCoords[end]+x), (WORD)(glyph.yCoords[end]+y), 1, RGBA(255, 255, 255)});
+        for(WORD j=startIdx+0; j < endIdx-1; j+=2){
+            drawBezier(lines, glyph.points[j].x+x, glyph.points[j].y+y, glyph.points[j+2].x+x, glyph.points[j+2].y+y, glyph.points[j+1].x+x, glyph.points[j+1].y+y);
         }
-        lines.push_back({(WORD)(glyph.xCoords[endIdx]+x), (WORD)(glyph.yCoords[endIdx]+y), (WORD)(glyph.xCoords[startIdx]+x), (WORD)(glyph.yCoords[startIdx]+y), 1, RGBA(255, 255, 255)});
+        drawBezier(lines, glyph.points[startIdx].x+x, glyph.points[startIdx].y+y, glyph.points[endIdx-1].x+x, glyph.points[endIdx-1].y+y, glyph.points[endIdx].x+x, glyph.points[endIdx].y+y);
         startIdx = endIdx+1;
     }
 	return font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[character]].advanceWidth : font.horMetrics[0].advanceWidth;
