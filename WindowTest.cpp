@@ -108,14 +108,14 @@ void triangulateGlyph(Font& font, BYTE c, WORD x, WORD y, Window& window){
                     float midYP1P2 = (p1.y+p2.y)/2.f;
                     float dyP1P2 = (p2.y-p1.y);
                     float mP1P2;
-                    dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e8f;
+                    dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e4f;
                     float bP1P2 = midYP1P2 - mP1P2*midXP1P2;
 
                     float midXP1P3 = (p1.x+p3.x)/2.f;
                     float midYP1P3 = (p1.y+p3.y)/2.f;
                     float dyP1P3 = (p3.y-p1.y);
                     float mP1P3;
-                    dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e8f;
+                    dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e4f;
                     float bP1P3 = midYP1P3 - mP1P3*midXP1P3;
 
                     float centerX = (bP1P3-bP1P2)/(mP1P2-mP1P3);
@@ -130,7 +130,21 @@ void triangulateGlyph(Font& font, BYTE c, WORD x, WORD y, Window& window){
                             break;
                         }
                     }
+                    if(!valid) continue;
+                    for(size_t m=0; m < triangles.size(); ++m){     //Testet ob das Dreieck mit anderen überlappt
+                        PointTriangle& tri = triangles[m];
+                        DWORD identical = 0;
+                        if(triangleOverlap(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, tri.p1.x, tri.p1.y, tri.p2.x, tri.p2.y, tri.p3.x, tri.p3.y, identical)){
+                            valid = false;
+                            break;
+                        }
+                        if(identical >= 2){
+                            valid = false;
+                            break;
+                        }
+                    }
 
+                    #ifdef VISUALIZETRIANGULATION
                     clearWindow(window);
                     circles.push_back({(WORD)centerX, (WORD)centerY, sqrt(radius2), sqrt(radius2)-1, RGBA(255, 255, 255)});
                     for(DWORD m=0; m < glyph.numPoints; ++m){
@@ -145,28 +159,16 @@ void triangulateGlyph(Font& font, BYTE c, WORD x, WORD y, Window& window){
                     lines.push_back({(WORD)(p1.x), (WORD)(p1.y), (WORD)(p2.x), (WORD)(p2.y), 1, RGBA(255, 0, 0)});
                     lines.push_back({(WORD)(p1.x), (WORD)(p1.y), (WORD)(p3.x), (WORD)(p3.y), 1, RGBA(255, 0, 0)});
                     lines.push_back({(WORD)(p2.x), (WORD)(p2.y), (WORD)(p3.x), (WORD)(p3.y), 1, RGBA(255, 0, 0)});
+                    std::cout << totalArea << std::endl;
                     renderCircles(window, circles.data(), circles.size());
                     renderLines(window, lines.data(), lines.size());
                     circles.clear();
                     lines.clear();
                     drawWindow(window);
                     getchar();
+                    #endif
 
                     if(!valid) continue;
-                    for(size_t m=0; m < triangles.size(); ++m){     //Testet ob das Dreieck mit anderen überlappt
-                        PointTriangle& tri = triangles[m];
-                        DWORD identical = 0;
-                        if(triangleOverlap(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, tri.p1.x, tri.p1.y, tri.p2.x, tri.p2.y, tri.p3.x, tri.p3.y, identical)){
-                            valid = false;
-                            break;
-                        }
-                        if(identical >= 2){
-                            valid = false;
-                            break;
-                        }
-                    }
-                    if(!valid) continue;
-
                     triangles.push_back({p1, p2, p3});
                 }
             }

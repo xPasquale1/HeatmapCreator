@@ -252,14 +252,14 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                 float midYP1P2 = (p1.y+p2.y)/2;
                 float dyP1P2 = (p2.y-p1.y);
                 float mP1P2;
-                dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e6f;
+                dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e4f;
                 float bP1P2 = midYP1P2 - mP1P2*midXP1P2;
 
                 float midXP1P3 = (p1.x+p3.x)/2;
                 float midYP1P3 = (p1.y+p3.y)/2;
                 float dyP1P3 = (p3.y-p1.y);
                 float mP1P3;
-                dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e6f;
+                dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e4f;
                 float bP1P3 = midYP1P3 - mP1P3*midXP1P3;
 
                 float centerX = (bP1P3-bP1P2)/(mP1P2-mP1P3);
