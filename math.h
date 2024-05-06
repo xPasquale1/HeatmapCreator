@@ -38,7 +38,9 @@ constexpr void normalize(fvec2& vec)noexcept{
 	vec.x *= length; vec.y *= length;
 }
 constexpr float dot(fvec3& a, fvec3& b)noexcept{return (a.x * b.x + a.y * b.y + a.z * b.z);}
+constexpr float dot(fvec2 a, fvec2 b)noexcept{return (a.x * b.x + a.y * b.y);}
 constexpr float dot(fvec2& a, fvec2& b)noexcept{return (a.x * b.x + a.y * b.y);}
+constexpr float cross(fvec2 a, fvec2 b)noexcept{return (a.x * b.y - a.y * b.x);}
 constexpr float cross(fvec2& a, fvec2& b)noexcept{return (a.x * b.y - a.y * b.x);}
 constexpr fvec3 cross(fvec3& a, fvec3& b)noexcept{return {a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x};}
 

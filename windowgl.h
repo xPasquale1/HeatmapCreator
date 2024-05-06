@@ -636,7 +636,8 @@ ErrCode renderRectangles(Window& window, RectangleData* rectangles, DWORD count)
 struct CircleData{
 	WORD x;
 	WORD y;
-	float radius;
+	float outerRadius;
+	float innerRadius;
 	DWORD color;
 };
 
@@ -644,10 +645,10 @@ ErrCode initDrawCirclesProgram(){
 	const GLchar vertexShaderCode[] = 
 	"#version 330\n"
 	"layout(location=0) in vec2 pos;"
-	"layout(location=1) in float radius;"
+	"layout(location=1) in vec2 radius;"
 	"layout(location=2) in uint color;"
 	"out vec2 vPos;"
-	"out float vRadius;"
+	"out vec2 vRadius;"
 	"out vec4 vColor;"
 	"void main(){"
 	"	vPos = pos;"
@@ -663,11 +664,11 @@ ErrCode initDrawCirclesProgram(){
 	"#version 330\n"
 	"out vec4 fragColor;"
 	"in vec2 texCoord;"
-	"in vec2 pos;"
-	"in float radius;"
+	"in vec2 radius;"
 	"in vec4 color;"
 	"void main(){"
-	"	if(distance(pos, texCoord) > radius) discard;"
+	"	float dist = length(texCoord);"
+	"	if(dist > radius.x || dist < radius.y) discard;"
 	"   fragColor = vec4(color);"
 	"}";
 	const GLchar geometryShaderCode[] = 
@@ -675,36 +676,34 @@ ErrCode initDrawCirclesProgram(){
 	"layout(points) in;"
 	"layout(triangle_strip, max_vertices = 4) out;"
 	"in vec2 vPos[];"
-	"in float vRadius[];"
+	"in vec2 vRadius[];"
 	"in vec4 vColor[];"
 	"out vec2 texCoord;"
-	"out vec2 pos;"
-	"out float radius;"
+	"out vec2 radius;"
 	"out vec4 color;"
 	"uniform vec2 wDimensions;"
 	"void main(){"
 	"	radius = vRadius[0];"
 	"	color = vColor[0];"
-	"	float xMin = vPos[0].x-vRadius[0];"
-	"	float xMax = vPos[0].x+vRadius[0];"
-	"	float yMin = vPos[0].y-vRadius[0];"
-	"	float yMax = vPos[0].y+vRadius[0];"
+	"	float xMin = vPos[0].x-vRadius[0].x;"
+	"	float xMax = vPos[0].x+vRadius[0].x;"
+	"	float yMin = vPos[0].y-vRadius[0].x;"
+	"	float yMax = vPos[0].y+vRadius[0].x;"
 	"	float xMinPos = ((xMin*2.0)/wDimensions.x)-1.0;"
 	"	float yMinPos = (((wDimensions.y-yMin)*2.0)/wDimensions.y)-1.0;"
 	"	float xMaxPos = ((xMax*2.0)/wDimensions.x)-1.0;"
 	"	float yMaxPos = (((wDimensions.y-yMax)*2.0)/wDimensions.y)-1.0;"
-	"	pos = vPos[0];"
 	"	gl_Position = vec4(xMinPos, yMinPos, 1.0, 1.0);"
-	"	texCoord = vec2(xMin, yMin);"
+	"	texCoord = vec2(-vRadius[0].x, -vRadius[0].x);"
 	"	EmitVertex();"
 	"	gl_Position = vec4(xMinPos, yMaxPos, 1.0, 1.0);"
-	"	texCoord = vec2(xMin, yMax);"
+	"	texCoord = vec2(-vRadius[0].x, vRadius[0].x);"
 	"	EmitVertex();"
 	"	gl_Position = vec4(xMaxPos, yMinPos, 1.0, 1.0);"
-	"	texCoord = vec2(xMax, yMin);"
+	"	texCoord = vec2(vRadius[0].x, -vRadius[0].x);"
 	"	EmitVertex();"
 	"	gl_Position = vec4(xMaxPos, yMaxPos, 1.0, 1.0);"
-	"	texCoord = vec2(xMax, yMax);"
+	"	texCoord = vec2(vRadius[0].x, vRadius[0].x);"
 	"	EmitVertex();"
 	"	EndPrimitive();"
 	"}";
@@ -746,13 +745,13 @@ ErrCode renderCircles(Window& window, CircleData* circles, DWORD count){
     glBufferData(GL_ARRAY_BUFFER, count*sizeof(CircleData), circles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(CircleData), (void*)4);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(CircleData), (void*)4);
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
     glBufferData(GL_ARRAY_BUFFER, count*sizeof(CircleData), circles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(2);
-    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(CircleData), (void*)8);
+    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(CircleData), (void*)12);
 
     glUseProgram(drawCirclesProgram);
 
@@ -949,6 +948,39 @@ void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD
         prevX = x;
         prevY = y;
     }
+}
+
+//TODO Für Font rendern. Die Idee ist nun alle Glyphen einzulesen und zu triangulieren. Es gibt 2 Shaderprogramme, eins für die einfachen Dreiecke die "direkt" gezeichnet,
+//werden können und eins für die speziellen Dreiecke die die Bezierkurven beinhalten. Beide Programme haben eine uniform Matrix zum skalieren, diese könnte man uniform für
+//einen gesamten String machen. Dann eine uniform Matrix zum Verschieben von jedem Glyphen. Einfacher wäre es bestimmt pro Glyph eine Skalierungs- und Verschiebungsmatrix zu haben.
+
+ErrCode renderFontChar(Font& font, WORD x, WORD y){
+	const GLchar fragmentShaderCode[] = 
+	"#version 330\n"
+	"out vec4 fragColor;"
+	"void main(){"
+	"	fragColor = vec4(1);"
+	"}";
+	const GLchar vertexShaderCode[] =
+	"#version 330\n"
+	"layout(location=0) in vec2 pos;"
+	"void main(){"
+	"	gl_Position = vec4(pos, 1.0, 1.0);"
+	"}";
+	GLuint program = glCreateProgram();
+    GLuint vertexShader = 0;
+    GLuint fragmentShader = 0;
+    if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
+    if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
+    glAttachShader(program, vertexShader);
+	glAttachShader(program, fragmentShader);
+    glLinkProgram(program);
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+	// glUniform1f(glGetUniformLocation(program, "scaling"), font.scalingFactor);
+	// glUniform2f(glGetUniformLocation(program, "offset"), x, y);
+	return SUCCESS;
 }
 
 DWORD drawFontChar(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
