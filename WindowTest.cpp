@@ -170,10 +170,10 @@ bool lineSegmentIntersection(SWORD xBeg1, SWORD yBeg1, SWORD xEnd1, SWORD yEnd1,
         float ty3 = (yBeg1 - yBeg2)/(float)dy2;
         float tx4 = (xEnd1 - xBeg2)/(float)dx2;
         float ty4 = (yEnd1 - yBeg2)/(float)dy2;
-        if(tx1 > 0 && tx1 < 1 && ty1 > 0 && ty1 < 1) return true;
-        if(tx2 > 0 && tx2 < 1 && ty2 > 0 && ty2 < 1) return true;
-        if(tx3 > 0 && tx3 < 1 && ty3 > 0 && ty3 < 1) return true;
-        if(tx4 > 0 && tx4 < 1 && ty4 > 0 && ty4 < 1) return true;
+        if(tx1 >= 0 && tx1 <= 1 && ty1 >= 0 && ty1 <= 1) return true;
+        if(tx2 >= 0 && tx2 <= 1 && ty2 >= 0 && ty2 <= 1) return true;
+        if(tx3 >= 0 && tx3 <= 1 && ty3 >= 0 && ty3 <= 1) return true;
+        if(tx4 >= 0 && tx4 <= 1 && ty4 >= 0 && ty4 <= 1) return true;
         return false;
     }
 
@@ -183,7 +183,7 @@ bool lineSegmentIntersection(SWORD xBeg1, SWORD yBeg1, SWORD xEnd1, SWORD yEnd1,
     float t1 = (dy2*dxBeg-dx2*dyBeg)/(float)denom;
     float t2 = (dy1*dxBeg-dx1*dyBeg)/(float)denom;
 
-    return (t1 > 0 && t1 < 1 && t2 > 0 && t2 < 1);
+    return (t1 >= 0 && t1 <= 1 && t2 >= 0 && t2 <= 1);
 }
 
 void addContour(WORD startIdx, WORD endIdx, std::vector<WORD>& indices){
@@ -202,101 +202,137 @@ struct Edge{
 
 bool testEdges(Glyph& glyph, WORD contourIdx, WORD pointIdx, std::vector<Edge>& bridges, Window& window, WORD x, WORD y){
     WORD startIdx = 0;
-    Glyphpoint& point = glyph.points[glyph.endOfContours[contourIdx-1]+1];
+    Glyphpoint& point = glyph.points[glyph.endOfContours[contourIdx-1]+1];      //Anfangsindex der zu testenden Lochkontur TODO sollte vllt mal alle Punkte testen
+    WORD pointIdxHole = glyph.endOfContours[contourIdx-1]+1;
     for(WORD k=0; k < bridges.size(); ++k){
         if(lineSegmentIntersection(bridges[k].x1, bridges[k].y1, bridges[k].x2, bridges[k].y2, point.x, point.y, glyph.points[pointIdx].x, glyph.points[pointIdx].y)) return false;
     }
     for(SWORD j=0; j < glyph.numContours; ++j){
         WORD endIdx = glyph.endOfContours[j];
         for(WORD k=startIdx+1; k <= endIdx; ++k){
+            if(k == pointIdx) continue;
+            if(k == pointIdxHole) continue;
+            if(k-1 == pointIdx) continue;
+            if(k-1 == pointIdxHole) continue;
             if(lineSegmentIntersection(glyph.points[k].x, glyph.points[k].y, glyph.points[k-1].x, glyph.points[k-1].y, point.x, point.y, glyph.points[pointIdx].x, glyph.points[pointIdx].y)) return false;
         }
-        if(lineSegmentIntersection(glyph.points[endIdx].x, glyph.points[endIdx].y, glyph.points[startIdx].x, glyph.points[startIdx].y, point.x, point.y, glyph.points[pointIdx].x, glyph.points[pointIdx].y)) return false;
+        // if(lineSegmentIntersection(glyph.points[endIdx].x, glyph.points[endIdx].y, glyph.points[startIdx].x, glyph.points[startIdx].y, point.x, point.y, glyph.points[pointIdx].x, glyph.points[pointIdx].y)) return false;
         startIdx = endIdx + 1;
     }
     bridges.push_back({point.x, point.y, glyph.points[pointIdx].x, glyph.points[pointIdx].y});
     return true;
 }
 
+struct OutlineContour{
+    WORD index;
+    std::vector<WORD> indices;
+};
+
 void triangulateGlyph(Font& font, BYTE c, WORD x, WORD y, Window& window){
     Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[c]];
-    std::vector<WORD> indices;
+    std::vector<OutlineContour> outlines;
+    std::vector<WORD> holes;                   //Speicher die Indexe der "Löcher" Konturen
     std::vector<PointTriangle> triangles;
-    std::vector<WORD> remainingContours;
     std::vector<Edge> bridges;
     WORD startIdx = 0;
-    for(WORD i=1; i < glyph.numContours; ++i) remainingContours.push_back(i);
-    for(WORD i=0; i <= glyph.endOfContours[0]; ++i){
-        indices.push_back(i);
-        if(remainingContours.size() > 0){
-            WORD startIdx = 0;
-            for(size_t j=0; j < remainingContours.size(); ++j){
-                WORD contourIdx = remainingContours[j];
-                if(!testEdges(glyph, contourIdx, i, bridges, window, x, y)) continue;
-                addContour(glyph.endOfContours[contourIdx-1]+1, glyph.endOfContours[contourIdx], indices);
-                remainingContours.erase(remainingContours.begin()+j);
-                indices.push_back(i);
-            }
+    for(SWORD i=0; i < glyph.numContours; ++i){     //Berechnet die winding-order der Konturen, negativ ist mit dem Uhrzeigersinn, positiv gegen
+        WORD endIdx = glyph.endOfContours[i];
+        SDWORD sign = 0;
+        for(WORD j=startIdx+1; j <= endIdx; ++j){
+            sign += (glyph.points[j].x-glyph.points[j-1].x)*(glyph.points[j].y+glyph.points[j-1].y);
         }
+        sign += (glyph.points[startIdx].x-glyph.points[endIdx].x)*(glyph.points[endIdx].y+glyph.points[startIdx].y);
+        if(sign <= 0){
+            OutlineContour outline;
+            outline.index = i;
+            outlines.push_back(std::move(outline));     //TODO idk ob std::move nötig ist
+        }else{
+            holes.push_back(i);
+        }
+        startIdx = endIdx + 1;
     }
-    indices.push_back(0);
 
-    while(indices.size() > 3){
-        for(WORD j=1; j < indices.size(); ++j){
-            WORD n = indices.size();
-            WORD current = indices[j];
-            WORD prev = indices[(j-1+n)%n];
-            WORD next = indices[(j+1)%n];
-            Glyphpoint& p = glyph.points[current];
-            Glyphpoint& p1 = glyph.points[prev];
-            Glyphpoint& p2 = glyph.points[next];
-            bool valid = true;
-            SWORD dx1 = p1.x - p.x;
-            SWORD dy1 = p1.y - p.y;
-            SWORD dx2 = p2.x - p.x;
-            SWORD dy2 = p2.y - p.y;
-            SDWORD sign = dx1 * dy2 - dy1 * dx2;
-            if(sign >= 0) continue;
-            for(WORD k=0; k < indices.size(); ++k){
-                Glyphpoint& point = glyph.points[indices[k]];
-                if(&point == &p || &point == &p1 || &point == &p2) continue;
-                if(pointInTriangle(p.x, p.y, p1.x, p1.y, p2.x, p2.y, point.x, point.y)){
-                    valid = false;
+    for(WORD i=0; i < outlines.size(); ++i){
+        OutlineContour& outline = outlines[i];
+        WORD startIdx = outline.index > 0 ? glyph.endOfContours[outline.index-1]+1 : 0;
+        WORD endIdx = glyph.endOfContours[outline.index];
+        std::vector<WORD> remainingContours;
+        for(WORD j=0; j < holes.size(); ++j) remainingContours.push_back(holes[j]);
+        for(WORD j=startIdx; j <= endIdx; ++j){
+            outline.indices.push_back(j);
+            if(remainingContours.size() > 0){
+                for(size_t k=0; k < remainingContours.size(); ++k){
+                    WORD contourIdx = remainingContours[k];
+                    if(!testEdges(glyph, contourIdx, j, bridges, window, x, y)) continue;
+                    addContour(glyph.endOfContours[contourIdx-1]+1, glyph.endOfContours[contourIdx], outline.indices);
+                    remainingContours.erase(remainingContours.begin()+k);
+                    outline.indices.push_back(j);
                     break;
                 }
             }
-            if(!valid) continue;
-            triangles.push_back({{(SWORD)(p.x+x), (SWORD)(p.y+y)}, {(SWORD)(p1.x+x), (SWORD)(p1.y+y)}, {(SWORD)(p2.x+x), (SWORD)(p2.y+y)}});
-            indices.erase(indices.begin()+j);
+        }
+        outline.indices.push_back(startIdx);
+    }
 
-            #define VISUALIZETRIANGULATION
-            #ifdef VISUALIZETRIANGULATION
-            clearWindow(window);
-            for(WORD k=0; k < indices.size(); ++k){
-                Glyphpoint& point = glyph.points[indices[k]];
-                circles.push_back({(WORD)(point.x+x), (WORD)(point.y+y), 3, 0, RGBA(180, 180, 180)});
+    for(WORD i=0; i < outlines.size(); ++i){
+        OutlineContour& outline = outlines[i];
+        while(outline.indices.size() > 3){
+            for(WORD j=1; j < outline.indices.size(); ++j){
+                WORD n = outline.indices.size();
+                WORD current = outline.indices[j];
+                WORD prev = outline.indices[(j-1+n)%n];
+                WORD next = outline.indices[(j+1)%n];
+                Glyphpoint& p = glyph.points[current];
+                Glyphpoint& p1 = glyph.points[prev];
+                Glyphpoint& p2 = glyph.points[next];
+                bool valid = true;
+                SWORD dx1 = p1.x - p.x;
+                SWORD dy1 = p1.y - p.y;
+                SWORD dx2 = p2.x - p.x;
+                SWORD dy2 = p2.y - p.y;
+                SDWORD sign = dx1 * dy2 - dy1 * dx2;
+                if(sign >= 0) continue;
+                for(WORD k=0; k < outline.indices.size(); ++k){
+                    Glyphpoint& point = glyph.points[outline.indices[k]];
+                    if(&point == &p || &point == &p1 || &point == &p2) continue;
+                    if(pointInTriangle(p.x, p.y, p1.x, p1.y, p2.x, p2.y, point.x, point.y)){
+                        valid = false;
+                        break;
+                    }
+                }
+                if(!valid) continue;
+                triangles.push_back({{(SWORD)(p.x+x), (SWORD)(p.y+y)}, {(SWORD)(p1.x+x), (SWORD)(p1.y+y)}, {(SWORD)(p2.x+x), (SWORD)(p2.y+y)}});
+                outline.indices.erase(outline.indices.begin()+j);
+
+                #define VISUALIZETRIANGULATION
+                #ifdef VISUALIZETRIANGULATION
+                clearWindow(window);
+                for(WORD k=0; k < outline.indices.size(); ++k){
+                    Glyphpoint& point = glyph.points[outline.indices[k]];
+                    circles.push_back({(WORD)(point.x+x), (WORD)(point.y+y), 3, 0, RGBA(180, 180, 180)});
+                }
+                for(WORD k=1; k < outline.indices.size(); ++k){
+                    Glyphpoint& p1 = glyph.points[outline.indices[k]];
+                    Glyphpoint& p2 = glyph.points[outline.indices[k-1]];
+                    lines.push_back({(WORD)(p1.x+x), (WORD)(p1.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(180, 180, 180)});
+                }
+                for(size_t m=0; m < triangles.size(); ++m){
+                    PointTriangle& tri = triangles[m];
+                    lines.push_back({(WORD)(tri.p1.x), (WORD)(tri.p1.y), (WORD)(tri.p2.x), (WORD)(tri.p2.y), 1, RGBA(0, 255, 0)});
+                    lines.push_back({(WORD)(tri.p1.x), (WORD)(tri.p1.y), (WORD)(tri.p3.x), (WORD)(tri.p3.y), 1, RGBA(0, 255, 0)});
+                    lines.push_back({(WORD)(tri.p2.x), (WORD)(tri.p2.y), (WORD)(tri.p3.x), (WORD)(tri.p3.y), 1, RGBA(0, 255, 0)});
+                }
+                lines.push_back({(WORD)(p.x+x), (WORD)(p.y+y), (WORD)(p1.x+x), (WORD)(p1.y+y), 1, RGBA(255, 0, 0)});
+                lines.push_back({(WORD)(p.x+x), (WORD)(p.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(255, 0, 0)});
+                lines.push_back({(WORD)(p1.x+x), (WORD)(p1.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(255, 0, 0)});
+                renderCircles(window, circles.data(), circles.size());
+                renderLines(window, lines.data(), lines.size());
+                circles.clear();
+                lines.clear();
+                drawWindow(window);
+                getchar();
+                #endif
             }
-            for(WORD k=1; k < indices.size(); ++k){
-                Glyphpoint& p1 = glyph.points[indices[k]];
-                Glyphpoint& p2 = glyph.points[indices[k-1]];
-                lines.push_back({(WORD)(p1.x+x), (WORD)(p1.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(180, 180, 180)});
-            }
-            for(size_t m=0; m < triangles.size(); ++m){
-                PointTriangle& tri = triangles[m];
-                lines.push_back({(WORD)(tri.p1.x), (WORD)(tri.p1.y), (WORD)(tri.p2.x), (WORD)(tri.p2.y), 1, RGBA(0, 255, 0)});
-                lines.push_back({(WORD)(tri.p1.x), (WORD)(tri.p1.y), (WORD)(tri.p3.x), (WORD)(tri.p3.y), 1, RGBA(0, 255, 0)});
-                lines.push_back({(WORD)(tri.p2.x), (WORD)(tri.p2.y), (WORD)(tri.p3.x), (WORD)(tri.p3.y), 1, RGBA(0, 255, 0)});
-            }
-            lines.push_back({(WORD)(p.x+x), (WORD)(p.y+y), (WORD)(p1.x+x), (WORD)(p1.y+y), 1, RGBA(255, 0, 0)});
-            lines.push_back({(WORD)(p.x+x), (WORD)(p.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(255, 0, 0)});
-            lines.push_back({(WORD)(p1.x+x), (WORD)(p1.y+y), (WORD)(p2.x+x), (WORD)(p2.y+y), 1, RGBA(255, 0, 0)});
-            renderCircles(window, circles.data(), circles.size());
-            renderLines(window, lines.data(), lines.size());
-            circles.clear();
-            lines.clear();
-            drawWindow(window);
-            getchar();
-            #endif
         }
     }
 }
@@ -326,7 +362,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         clearWindow(window);
 
         // drawFontString(font, lines, "The quick brown fox jumps over the lazy dog.", 10, 10);
-        triangulateGlyph(font, 'C', 160, 100, window);
+        triangulateGlyph(font, '%', 160, 100, window);
 
         renderCircles(window, circles.data(), circles.size());
         renderLines(window, lines.data(), lines.size());
