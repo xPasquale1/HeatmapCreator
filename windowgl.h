@@ -954,7 +954,7 @@ void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD
 //werden können und eins für die speziellen Dreiecke die die Bezierkurven beinhalten. Beide Programme haben eine uniform Matrix zum skalieren, diese könnte man uniform für
 //einen gesamten String machen. Dann eine uniform Matrix zum Verschieben von jedem Glyphen. Einfacher wäre es bestimmt pro Glyph eine Skalierungs- und Verschiebungsmatrix zu haben.
 
-ErrCode renderFontChar(Font& font, WORD x, WORD y){
+ErrCode renderFontChar(Font& font, BYTE c, WORD x, WORD y){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
 	"out vec4 fragColor;"

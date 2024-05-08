@@ -6,6 +6,8 @@
 
 /*
     TODOS:
+    Webassembly, also das man alles im browser nutzen kann
+
     Lineare Interpolation des Triangulationsalgorithmus zu einer logarithmischen umändern
 
     Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
