@@ -45,6 +45,7 @@ std::vector<RectangleData> rectangles;
 enum MODES{
     HEATMAPMODE,
     SEARCHMODE,
+    DISPLAYMODE,
     ENDOFMODES
 };
 
@@ -56,6 +57,8 @@ struct Datapoint{
 };
 static Hashmap datapoints;
 #define coordinatesToKey(x, y)((x<<16)|y)
+
+std::vector<SBYTE> singleRssiData;
 
 static BYTE mode = 0;
 static DWORD searchColor[HEATMAPCOUNT]{0};  //TODO auch zur Laufzeit allokieren und durch das Applikationsinterface veränderbar machen
@@ -124,6 +127,9 @@ void processNetworkPackets()noexcept{
                     blink = 0;
                     if(gy >= DATAPOINTRESOLUTIONY) gy = 0;
                     break;
+                }
+                case 6:{    //Einzelne Rssi Daten
+                    if(buffer[1] != 0) singleRssiData.push_back(buffer[1]);
                 }
             }
         }
@@ -345,8 +351,17 @@ ErrCode toggleMode(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++mode;
     if(mode >= ENDOFMODES) mode = 0;
-    if(!mode) button->text = "Heatmap-Mode";
-    else button->text = "Search-Mode";
+    switch(mode){
+        case HEATMAPMODE:
+            button->text = "Heatmap-Mode";
+            break;
+        case SEARCHMODE:
+            button->text = "Search-Mode";
+            break;
+        case DISPLAYMODE:
+            button->text = "Display-Mode";
+            break;
+    }
     return SUCCESS;
 }
 
@@ -699,17 +714,41 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             destroyImage(dataPointsImage);
         }
 
-        if(mode == SEARCHMODE){
-            calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
-            drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
-        }else{
-            WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
-            WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
-            if(blink%32 < 8) rectangles.push_back({(WORD)(200+gx*tileSizeX), (WORD)(gy*tileSizeY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
-            blink++;
+        switch(mode){
+            case SEARCHMODE:{
+                calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
+                drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
+                drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                break;
+            }
+            case HEATMAPMODE:{
+                WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
+                WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
+                if(blink%32 < 8) rectangles.push_back({(WORD)(200+gx*tileSizeX), (WORD)(gy*tileSizeY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
+                blink++;
+                drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                break;
+            }
+            case DISPLAYMODE:{
+                WORD valueCounter[MAXDB-MINDB]{0};
+                for(SBYTE rssi : singleRssiData){
+                    float range = ((float)abs(rssi)-MINDB)/(MAXDB-MINDB);
+                    valueCounter[abs(rssi)] += 1;
+                }
+                WORD maxCount = 1;
+                for(WORD i=0; i < MAXDB-MINDB; ++i){
+                    if(valueCounter[i] > maxCount) maxCount = valueCounter[i];
+                }
+                WORD posX = 200;
+                WORD incX = (window.windowWidth-200)/(MAXDB-MINDB);
+                for(WORD i=0; i < MAXDB-MINDB; ++i){
+                    WORD height = (valueCounter[i]*(window.windowHeight-50))/maxCount;
+                    lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
+                }
+                drawFontString(font, lines, longToString(singleRssiData.size()), 220, 80);
+                break;
+            }
         }
-
-        drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
 
         int selectedStrength = 90;
         Datapoint* point = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(gx, gy));

@@ -72,10 +72,12 @@ ErrCode initDrawLinesProgram();
 ErrCode initDrawCirclesProgram();
 ErrCode initDrawRectanglesProgram();
 ErrCode initDrawImageProgram();
+ErrCode initDrawFontCharProgram();
 static volatile GLuint drawLinesProgram;
 static volatile GLuint drawCirclesProgram;
 static volatile GLuint drawRectanglesProgram;
 static volatile GLuint drawImageProgram;
+static volatile GLuint drawFontCharProgram;
 ErrCode init(){
 	glGetError = (PFNGLGETERRORPROC)loadGlFunction("glGetError");
 	glCreateProgram = (PFNGLCREATEPROGRAMPROC)loadGlFunction("glCreateProgram");
@@ -127,6 +129,7 @@ ErrCode init(){
 	if(ErrCheck(initDrawCirclesProgram(), "Draw Circles initialisieren") != SUCCESS) return GENERIC_ERROR;
 	if(ErrCheck(initDrawRectanglesProgram(), "Draw Rectangles initialisieren") != SUCCESS) return GENERIC_ERROR;
 	if(ErrCheck(initDrawImageProgram(), "Draw Image initialisieren") != SUCCESS) return GENERIC_ERROR;
+	if(ErrCheck(initDrawFontCharProgram(), "Draw Font Char initialisieren") != SUCCESS) return GENERIC_ERROR;
 	return SUCCESS;
 }
 
@@ -954,7 +957,7 @@ void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD
 //werden können und eins für die speziellen Dreiecke die die Bezierkurven beinhalten. Beide Programme haben eine uniform Matrix zum skalieren, diese könnte man uniform für
 //einen gesamten String machen. Dann eine uniform Matrix zum Verschieben von jedem Glyphen. Einfacher wäre es bestimmt pro Glyph eine Skalierungs- und Verschiebungsmatrix zu haben.
 
-ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
+ErrCode initDrawFontCharProgram(){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
 	"out vec4 fragColor;"
@@ -963,24 +966,41 @@ ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
 	"}";
 	const GLchar vertexShaderCode[] =
 	"#version 330\n"
-	"layout(location=0) in vec2 pos;"
+	"layout(location=0) in ivec2 pos;"
+	"uniform vec2 wDimensions;"
+	"uniform int yMax;"
+	"uniform int yMin;"
+	"uniform int pixelSize;"
+	"uniform int x;"
+	"uniform int y;"
 	"void main(){"
-	"	gl_Position = vec4(pos, 1.0, 1.0);"
+	"	vec2 scaledPos = pos;"
+	"	float scalingFactor = (yMax-yMin)/pixelSize;"
+	"	scaledPos.y -= yMin;"
+	"	scaledPos /= scalingFactor;"
+	"	scaledPos.y += wDimensions.y-((yMax-yMin)/scalingFactor);"
+	"	scaledPos.x += x;"
+	"	scaledPos.y -= y;"
+	"	scaledPos /= wDimensions/2;"
+	"	scaledPos -= 1;"
+	"	gl_Position = vec4(scaledPos, 1.0, 1.0);"
 	"}";
-	GLuint program = glCreateProgram();
+	drawFontCharProgram = glCreateProgram();
     GLuint vertexShader = 0;
     GLuint fragmentShader = 0;
     if(ErrCheck(loadShader(vertexShader, GL_VERTEX_SHADER, vertexShaderCode, sizeof(vertexShaderCode)), "Vertex Shader laden") != SUCCESS) return GENERIC_ERROR;
     if(ErrCheck(loadShader(fragmentShader, GL_FRAGMENT_SHADER, fragmentShaderCode, sizeof(fragmentShaderCode)), "Fragment Shader laden") != SUCCESS) return GENERIC_ERROR;
-    glAttachShader(program, vertexShader);
-	glAttachShader(program, fragmentShader);
-    glLinkProgram(program);
+    glAttachShader(drawFontCharProgram, vertexShader);
+	glAttachShader(drawFontCharProgram, fragmentShader);
+    glLinkProgram(drawFontCharProgram);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-
+	return SUCCESS;
+}
+ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
 	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
-	font.triangles[font.asciiToGlyphMapping[c]];
+	Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[c]];
 
     GLuint VBOPos, VAO;
     glGenVertexArrays(1, &VAO);
@@ -989,24 +1009,37 @@ ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, count*sizeof(LineData), lines, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, glyph.numTriangles*sizeof(GlyphTriangle), glyph.triangles, GL_STATIC_DRAW);
     
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GlyphTriangle), 0);
-    
-    glEnableVertexAttribArray(2);
-    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(LineData), (void*)12);
+    glVertexAttribIPointer(0, 2, GL_SHORT, 0, 0);
 
-    glUseProgram(drawLinesProgram);
+    glUseProgram(drawFontCharProgram);
 
-	glUniform2f(glGetUniformLocation(drawLinesProgram, "wDimensions"), window.windowWidth, window.windowHeight);
+	glUniform2f(glGetUniformLocation(drawFontCharProgram, "wDimensions"), window.windowWidth, window.windowHeight);
+	glUniform1i(glGetUniformLocation(drawFontCharProgram, "yMin"), font.yMin);
+	glUniform1i(glGetUniformLocation(drawFontCharProgram, "yMax"), font.yMax);
+	glUniform1i(glGetUniformLocation(drawFontCharProgram, "pixelSize"), font.pixelSize);
+	glUniform1i(glGetUniformLocation(drawFontCharProgram, "x"), x);
+	glUniform1i(glGetUniformLocation(drawFontCharProgram, "y"), y);
 
-    glDrawArrays(GL_TRIANGLES, 0, count);
+    glDrawArrays(GL_TRIANGLES, 0, glyph.numTriangles*3);
 
 	glDisableVertexAttribArray(0);
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
+	return SUCCESS;
+}
+
+//TODO noch nicht optimal implementiert, renderFontChar immer wieder aufzurufen ist schlecht
+ErrCode drawFontString(Window& window, Font& font, const char* string, WORD x, WORD y){
+	DWORD offset = 0;
+	for(size_t i=0; i < strlen(string); ++i){
+		renderFontChar(window, font, string[i], x+offset, y);
+		float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
+		offset += font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth/scalingFactor : font.horMetrics[0].advanceWidth/scalingFactor;
+	}
 	return SUCCESS;
 }
 
