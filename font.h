@@ -68,6 +68,15 @@ struct Glyphpoint{
 	SWORD y;
 };
 
+struct GlyphTriangle{
+	WORD x1;
+	WORD y1;
+	WORD x2;
+	WORD y2;
+	WORD x3;
+	WORD y3;
+};
+
 struct Glyph{
 	SWORD numPoints = 0;
 	Glyphpoint* points = nullptr;
@@ -77,6 +86,8 @@ struct Glyph{
 	SWORD yMax = 0;
 	SWORD numContours = 0;
 	WORD* endOfContours = nullptr;
+    GlyphTriangle* triangles = nullptr;
+	WORD numTriangles;
 };
 
 void readCoordinates(std::fstream& file, const BYTE* flags, Glyphpoint* coords, BYTE isY, SWORD numPoints)noexcept{
@@ -238,7 +249,6 @@ struct Font{
     GlyphStorage glyphStorage;
     WORD horMetricsCount = 0;
     HorMetric* horMetrics = nullptr;
-	WORD verticalSpacing = 0;
 };
 
 void destroyFont(Font& font){

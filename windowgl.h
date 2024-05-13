@@ -954,7 +954,7 @@ void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD
 //werden können und eins für die speziellen Dreiecke die die Bezierkurven beinhalten. Beide Programme haben eine uniform Matrix zum skalieren, diese könnte man uniform für
 //einen gesamten String machen. Dann eine uniform Matrix zum Verschieben von jedem Glyphen. Einfacher wäre es bestimmt pro Glyph eine Skalierungs- und Verschiebungsmatrix zu haben.
 
-ErrCode renderFontChar(Font& font, BYTE c, WORD x, WORD y){
+ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
 	"out vec4 fragColor;"
@@ -978,8 +978,35 @@ ErrCode renderFontChar(Font& font, BYTE c, WORD x, WORD y){
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-	// glUniform1f(glGetUniformLocation(program, "scaling"), font.scalingFactor);
-	// glUniform2f(glGetUniformLocation(program, "offset"), x, y);
+	wglMakeCurrent(GetDC(window.handle), window.glContext);
+
+	font.triangles[font.asciiToGlyphMapping[c]];
+
+    GLuint VBOPos, VAO;
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBOPos);
+
+    glBindVertexArray(VAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
+    glBufferData(GL_ARRAY_BUFFER, count*sizeof(LineData), lines, GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GlyphTriangle), 0);
+    
+    glEnableVertexAttribArray(2);
+    glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, sizeof(LineData), (void*)12);
+
+    glUseProgram(drawLinesProgram);
+
+	glUniform2f(glGetUniformLocation(drawLinesProgram, "wDimensions"), window.windowWidth, window.windowHeight);
+
+    glDrawArrays(GL_TRIANGLES, 0, count);
+
+	glDisableVertexAttribArray(0);
+
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBOPos);
 	return SUCCESS;
 }
 
