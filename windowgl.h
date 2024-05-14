@@ -31,7 +31,10 @@ PFNGLDISABLEPROC glDisable;
 PFNGLBLENDFUNCPROC glBlendFunc;
 PFNGLCLEARCOLORPROC glClearColor;
 PFNGLDRAWARRAYSPROC glDrawArrays;
+PFNGLMULTIDRAWARRAYSPROC glMultiDrawArrays;
+PFNGLDRAWARRAYSINSTANCEDPROC glDrawArraysInstanced;
 PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer;
+PFNGLVERTEXATTRIBDIVISORPROC glVertexAttribDivisor;
 PFNGLVERTEXATTRIBIPOINTERPROC glVertexAttribIPointer;
 PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
 PFNGLDISABLEVERTEXATTRIBARRAYPROC glDisableVertexAttribArray;
@@ -48,6 +51,7 @@ PFNGLGENBUFFERSPROC glGenBuffers;
 PFNGLDELETEBUFFERSPROC glDeleteBuffers;
 PFNGLBINDBUFFERPROC glBindBuffer;
 PFNGLBUFFERDATAPROC glBufferData;
+PFNGLBUFFERSUBDATAPROC glBufferSubData;
 PFNGLGENVERTEXARRAYSPROC glGenVertexArrays;
 PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays;
 PFNGLBINDVERTEXARRAYPROC glBindVertexArray;
@@ -90,7 +94,10 @@ ErrCode init(){
 	glBlendFunc = (PFNGLBLENDFUNCPROC)loadGlFunction("glBlendFunc");
 	glClearColor = (PFNGLCLEARCOLORPROC)loadGlFunction("glClearColor");
 	glDrawArrays = (PFNGLDRAWARRAYSPROC)loadGlFunction("glDrawArrays");
+	glMultiDrawArrays = (PFNGLMULTIDRAWARRAYSPROC)loadGlFunction("glMultiDrawArrays");
+	glDrawArraysInstanced = (PFNGLDRAWARRAYSINSTANCEDPROC)loadGlFunction("glDrawArraysInstanced");
 	glVertexAttribPointer = (PFNGLVERTEXATTRIBPOINTERPROC)loadGlFunction("glVertexAttribPointer");
+	glVertexAttribDivisor = (PFNGLVERTEXATTRIBDIVISORPROC)loadGlFunction("glVertexAttribDivisor");
 	glVertexAttribIPointer = (PFNGLVERTEXATTRIBIPOINTERPROC)loadGlFunction("glVertexAttribIPointer");
 	glEnableVertexAttribArray = (PFNGLENABLEVERTEXATTRIBARRAYPROC)loadGlFunction("glEnableVertexAttribArray");
 	glDisableVertexAttribArray = (PFNGLDISABLEVERTEXATTRIBARRAYPROC)loadGlFunction("glDisableVertexAttribArray");
@@ -107,6 +114,7 @@ ErrCode init(){
 	glDeleteBuffers = (PFNGLDELETEBUFFERSPROC)loadGlFunction("glDeleteBuffers");
 	glBindBuffer = (PFNGLBINDBUFFERPROC)loadGlFunction("glBindBuffer");
 	glBufferData = (PFNGLBUFFERDATAPROC)loadGlFunction("glBufferData");
+	glBufferSubData = (PFNGLBUFFERSUBDATAPROC)loadGlFunction("glBufferSubData");
 	glGenVertexArrays = (PFNGLGENVERTEXARRAYSPROC)loadGlFunction("glGenVertexArrays");
 	glDeleteVertexArrays = (PFNGLDELETEVERTEXARRAYSPROC)loadGlFunction("glDeleteVertexArrays");
 	glBindVertexArray = (PFNGLBINDVERTEXARRAYPROC)loadGlFunction("glBindVertexArray");
@@ -428,6 +436,8 @@ void destroyImage(Image& image)noexcept{
 }
 
 //-------------------------------Zeichen Operationen-------------------------------
+
+//TODO die Funktionen für Linien, Kreise und Bilder können alle mit Instancing umgesetzt werden
 
 //TODO sollte auch als Geometry Shader umgesetzt werden
 ErrCode initDrawImageProgram(){
@@ -957,6 +967,14 @@ void drawBezier(std::vector<LineData>& lines, WORD px1, WORD py1, WORD px2, WORD
 //werden können und eins für die speziellen Dreiecke die die Bezierkurven beinhalten. Beide Programme haben eine uniform Matrix zum skalieren, diese könnte man uniform für
 //einen gesamten String machen. Dann eine uniform Matrix zum Verschieben von jedem Glyphen. Einfacher wäre es bestimmt pro Glyph eine Skalierungs- und Verschiebungsmatrix zu haben.
 
+//Reihenfolge das ZUERST x, dann y und dann pixelSize kommt ist wichtig!
+struct CharData{
+	WORD x;
+	WORD y;
+	WORD pixelSize;
+	BYTE character;
+};
+
 ErrCode initDrawFontCharProgram(){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
@@ -967,20 +985,18 @@ ErrCode initDrawFontCharProgram(){
 	const GLchar vertexShaderCode[] =
 	"#version 330\n"
 	"layout(location=0) in ivec2 pos;"
+	"layout(location=1) in ivec3 data;"
 	"uniform vec2 wDimensions;"
 	"uniform int yMax;"
 	"uniform int yMin;"
-	"uniform int pixelSize;"
-	"uniform int x;"
-	"uniform int y;"
 	"void main(){"
 	"	vec2 scaledPos = pos;"
-	"	float scalingFactor = (yMax-yMin)/pixelSize;"
+	"	float scalingFactor = (yMax-yMin)/float(data.z);"
 	"	scaledPos.y -= yMin;"
 	"	scaledPos /= scalingFactor;"
 	"	scaledPos.y += wDimensions.y-((yMax-yMin)/scalingFactor);"
-	"	scaledPos.x += x;"
-	"	scaledPos.y -= y;"
+	"	scaledPos.x += data.x;"
+	"	scaledPos.y -= data.y;"
 	"	scaledPos /= wDimensions/2;"
 	"	scaledPos -= 1;"
 	"	gl_Position = vec4(scaledPos, 1.0, 1.0);"
@@ -997,53 +1013,91 @@ ErrCode initDrawFontCharProgram(){
     glDeleteShader(fragmentShader);
 	return SUCCESS;
 }
-ErrCode renderFontChar(Window& window, Font& font, BYTE c, WORD x, WORD y){
+//TODO anstatt die CharData so unnötig hin un her zu kopieren, wäre es besser keinen std::vector zu nutzen, sondern eine Datenstruktur bei der man direkt
+//sagen kann, dass ein neuer Char mit Verschiebung,... hinzugefügt werden soll, also eine Art std::vector<std::vector<CharData>> und dann kann man sich auch 
+//das Member character sparen, muss aber auch immer zählen wie viele es nun gibt
+#define MAXCHARS 200
+ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD count){
 	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
-	Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[c]];
+	CharData* chars[256][MAXCHARS];
+	DWORD charCounter[256]{0};
+	for(DWORD i=0; i < count; ++i){
+		chars[characters[i].character][charCounter[characters[i].character]] = &characters[i];
+		charCounter[characters[i].character] += 1;
+	}
 
-    GLuint VBOPos, VAO;
+	DWORD numTriangles = 0;
+	for(WORD i=0; i < 256; ++i){
+		numTriangles += font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles;
+	}
+
+    GLuint VBOPos, VBOData, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBOPos);
+	glGenBuffers(1, &VBOData);
 
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBOPos);
-    glBufferData(GL_ARRAY_BUFFER, glyph.numTriangles*sizeof(GlyphTriangle), glyph.triangles, GL_STATIC_DRAW);
-    
+    glBufferData(GL_ARRAY_BUFFER, numTriangles*sizeof(GlyphTriangle), nullptr, GL_STATIC_DRAW);
+	DWORD offset = 0;
+	for(DWORD i=0; i < 256; ++i){
+		glBufferSubData(GL_ARRAY_BUFFER, offset, font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*sizeof(GlyphTriangle), font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].triangles);
+		offset += font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*sizeof(GlyphTriangle);
+	}
+
     glEnableVertexAttribArray(0);
     glVertexAttribIPointer(0, 2, GL_SHORT, 0, 0);
 
-    glUseProgram(drawFontCharProgram);
 
+	glBindBuffer(GL_ARRAY_BUFFER, VBOData);
+	glBufferData(GL_ARRAY_BUFFER, count*sizeof(WORD)*3, nullptr, GL_STATIC_DRAW);	//TODO muss nicht so groß sein
+	glEnableVertexAttribArray(1);
+	glVertexAttribIPointer(1, 3, GL_UNSIGNED_SHORT, 0, 0);
+	glVertexAttribDivisor(1, 1);
+
+	glUseProgram(drawFontCharProgram);
 	glUniform2f(glGetUniformLocation(drawFontCharProgram, "wDimensions"), window.windowWidth, window.windowHeight);
 	glUniform1i(glGetUniformLocation(drawFontCharProgram, "yMin"), font.yMin);
 	glUniform1i(glGetUniformLocation(drawFontCharProgram, "yMax"), font.yMax);
-	glUniform1i(glGetUniformLocation(drawFontCharProgram, "pixelSize"), font.pixelSize);
-	glUniform1i(glGetUniformLocation(drawFontCharProgram, "x"), x);
-	glUniform1i(glGetUniformLocation(drawFontCharProgram, "y"), y);
 
-    glDrawArrays(GL_TRIANGLES, 0, glyph.numTriangles*3);
+	DWORD startOffset = 0;
+	for(WORD i=0; i < 256; ++i){
+		if(charCounter[i] == 0){
+			startOffset += font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*3;
+			continue;
+		}
+		offset = 0;
+		for(DWORD j=0; j < charCounter[i]; ++j){
+			glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(WORD)*3, chars[i][j]);		//Setzt vorraus, dass x, y und pixelSize direkt nacheinander im struct sind!
+			offset += sizeof(WORD)*3;
+		}
+
+		glDrawArraysInstanced(GL_TRIANGLES, startOffset, font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*3, charCounter[i]);
+		startOffset += font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*3;
+	}
 
 	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
+	glDeleteBuffers(1, &VBOData);
 	return SUCCESS;
 }
 
-//TODO noch nicht optimal implementiert, renderFontChar immer wieder aufzurufen ist schlecht
-ErrCode drawFontString(Window& window, Font& font, const char* string, WORD x, WORD y){
-	DWORD offset = 0;
+ErrCode drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y){
+	WORD offset = 0;
 	for(size_t i=0; i < strlen(string); ++i){
-		renderFontChar(window, font, string[i], x+offset, y);
+		glyphs.push_back({(WORD)(x+offset), y, font.pixelSize, (BYTE)string[i]});
 		float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
 		offset += font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth/scalingFactor : font.horMetrics[0].advanceWidth/scalingFactor;
 	}
 	return SUCCESS;
 }
 
-DWORD drawFontChar(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
+DWORD drawFontCharOutline(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
     Glyph& glyph = font.glyphStorage.glyphs[font.asciiToGlyphMapping[character]];
     WORD startIdx = 0;
     for(SWORD i=0; i < glyph.numContours; ++i){
@@ -1057,10 +1111,10 @@ DWORD drawFontChar(Font& font, std::vector<LineData>& lines, BYTE character, WOR
 	return font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[character]].advanceWidth : font.horMetrics[0].advanceWidth;
 }
 
-DWORD drawFontString(Font& font, std::vector<LineData>& lines, const char* string, WORD x, WORD y){
+DWORD drawFontStringOutline(Font& font, std::vector<LineData>& lines, const char* string, WORD x, WORD y){
 	DWORD offset = 0;
 	for(size_t i=0; i < strlen(string); ++i){
-		offset += drawFontChar(font, lines, string[i], x+offset, y);
+		offset += drawFontCharOutline(font, lines, string[i], x+offset, y);
 	}
 	return offset;
 }
@@ -1075,156 +1129,156 @@ DWORD getFontStringSize(Font& font, const char* string){
 
 //-------------------------------GUI-------------------------------
 
-ErrCode _defaultEvent(void*)noexcept{return SUCCESS;}
-enum BUTTONFLAGS{
-	BUTTON_VISIBLE=1,
-	BUTTON_CAN_HOVER=2,
-	BUTTON_HOVER=4,
-	BUTTON_PRESSED=8,
-	BUTTON_TEXT_CENTER=16,
-	BUTTON_DISABLED=32
-};
-struct Button{
-	ErrCode (*event)(void*)noexcept = _defaultEvent;	//Funktionspointer zu einer Funktion die gecallt werden soll wenn der Button gedrückt wird
-	std::string text;
-	Image* image = nullptr;
-	Image* disabled_image = nullptr;
-	ivec2 pos = {0, 0};
-	ivec2 repos = {0, 0};
-	ivec2 size = {50, 10};
-	ivec2 resize = {55, 11};
-	BYTE flags = BUTTON_VISIBLE | BUTTON_CAN_HOVER;
-	DWORD color = RGBA(120, 120, 120);
-	DWORD hover_color = RGBA(120, 120, 255);
-	DWORD textcolor = RGBA(180, 180, 180);
-	DWORD disabled_color = RGBA(90, 90, 90);
-	WORD textsize = 16;
-	void* data = nullptr;
-};
+// ErrCode _defaultEvent(void*)noexcept{return SUCCESS;}
+// enum BUTTONFLAGS{
+// 	BUTTON_VISIBLE=1,
+// 	BUTTON_CAN_HOVER=2,
+// 	BUTTON_HOVER=4,
+// 	BUTTON_PRESSED=8,
+// 	BUTTON_TEXT_CENTER=16,
+// 	BUTTON_DISABLED=32
+// };
+// struct Button{
+// 	ErrCode (*event)(void*)noexcept = _defaultEvent;	//Funktionspointer zu einer Funktion die gecallt werden soll wenn der Button gedrückt wird
+// 	std::string text;
+// 	Image* image = nullptr;
+// 	Image* disabled_image = nullptr;
+// 	ivec2 pos = {0, 0};
+// 	ivec2 repos = {0, 0};
+// 	ivec2 size = {50, 10};
+// 	ivec2 resize = {55, 11};
+// 	BYTE flags = BUTTON_VISIBLE | BUTTON_CAN_HOVER;
+// 	DWORD color = RGBA(120, 120, 120);
+// 	DWORD hover_color = RGBA(120, 120, 255);
+// 	DWORD textcolor = RGBA(180, 180, 180);
+// 	DWORD disabled_color = RGBA(90, 90, 90);
+// 	WORD textsize = 16;
+// 	void* data = nullptr;
+// };
 
-void destroyButton(Button& button)noexcept{
-	destroyImage(*button.image);
-}
+// void destroyButton(Button& button)noexcept{
+// 	destroyImage(*button.image);
+// }
 
-inline constexpr void setButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{button.flags |= flag;}
-inline constexpr void resetButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{button.flags &= ~flag;}
-inline constexpr bool getButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{return (button.flags & flag);}
-//TODO kann bestimmt besser geschrieben werden... und ErrCheck aufs Event sollte mit einem BUTTONSTATE entschieden werden
-inline void buttonsClicked(Button* buttons, WORD button_count)noexcept{
-	for(WORD i=0; i < button_count; ++i){
-		Button& b = buttons[i];
-		if(!getButtonFlag(b, BUTTON_VISIBLE) || getButtonFlag(b, BUTTON_DISABLED)) continue;
-		ivec2 delta = {mouse.x - b.pos.x, mouse.y - b.pos.y};
-		if(delta.x >= 0 && delta.x <= b.size.x && delta.y >= 0 && delta.y <= b.size.y){
-			if(getButtonFlag(b, BUTTON_CAN_HOVER)) b.flags |= BUTTON_HOVER;
-			if(getButton(mouse, MOUSE_LMB) && !getButtonFlag(b, BUTTON_PRESSED)){
-				ErrCheck(b.event(b.data));
-				b.flags |= BUTTON_PRESSED;
-			}
-			else if(!getButton(mouse, MOUSE_LMB)) b.flags &= ~BUTTON_PRESSED;
-		}else if(getButtonFlag(b, BUTTON_CAN_HOVER)){
-			b.flags &= ~BUTTON_HOVER;
-		}
-	}
-}
+// inline constexpr void setButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{button.flags |= flag;}
+// inline constexpr void resetButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{button.flags &= ~flag;}
+// inline constexpr bool getButtonFlag(Button& button, BUTTONFLAGS flag)noexcept{return (button.flags & flag);}
+// //TODO kann bestimmt besser geschrieben werden... und ErrCheck aufs Event sollte mit einem BUTTONSTATE entschieden werden
+// inline void buttonsClicked(Button* buttons, WORD button_count)noexcept{
+// 	for(WORD i=0; i < button_count; ++i){
+// 		Button& b = buttons[i];
+// 		if(!getButtonFlag(b, BUTTON_VISIBLE) || getButtonFlag(b, BUTTON_DISABLED)) continue;
+// 		ivec2 delta = {mouse.x - b.pos.x, mouse.y - b.pos.y};
+// 		if(delta.x >= 0 && delta.x <= b.size.x && delta.y >= 0 && delta.y <= b.size.y){
+// 			if(getButtonFlag(b, BUTTON_CAN_HOVER)) b.flags |= BUTTON_HOVER;
+// 			if(getButton(mouse, MOUSE_LMB) && !getButtonFlag(b, BUTTON_PRESSED)){
+// 				ErrCheck(b.event(b.data));
+// 				b.flags |= BUTTON_PRESSED;
+// 			}
+// 			else if(!getButton(mouse, MOUSE_LMB)) b.flags &= ~BUTTON_PRESSED;
+// 		}else if(getButtonFlag(b, BUTTON_CAN_HOVER)){
+// 			b.flags &= ~BUTTON_HOVER;
+// 		}
+// 	}
+// }
 
-inline ErrCode drawButtons(Window& window, Font& font, std::vector<LineData>& lines, std::vector<RectangleData>& rectangles, Button* buttons, WORD button_count)noexcept{
-	#ifdef INVALIDHANDLEERRORS
-	if(window.handle == NULL) return WINDOW_NOT_FOUND;
-	#endif
-	for(WORD i=0; i < button_count; ++i){
-		Button& b = buttons[i];
-		if(!getButtonFlag(b, BUTTON_VISIBLE)) continue;
-		if(getButtonFlag(b, BUTTON_DISABLED)){
-			if(b.disabled_image == nullptr)
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.disabled_color});
-			else
-				drawImage(window, *b.disabled_image, b.pos.x, b.pos.y, b.pos.x+b.size.x, b.pos.y+b.size.y);
-		}else if(b.image == nullptr){
-			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.hover_color});
-			else
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.color});
-		}else{
-			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
-				drawImage(window, *b.image, b.repos.x, b.repos.y, b.repos.x+b.resize.x, b.repos.y+b.resize.y);
-			else
-				drawImage(window, *b.image, b.pos.x, b.pos.y, b.pos.x+b.size.x, b.pos.y+b.size.y);
-		}
-		if(getButtonFlag(b, BUTTON_TEXT_CENTER)){
-			DWORD offset = 0;
-			// WORD tmp_font_size = font.font_size;
-			// font.font_size = b.textsize;
-			DWORD str_size = getFontStringSize(font, b.text.c_str());
-			for(size_t i=0; i < b.text.size(); ++i){
-				offset += drawFontChar(font, lines, b.text[i], b.pos.x+offset+b.size.x/2-str_size/2, b.pos.y+b.size.y/2-b.textsize/2);
-			}
-			// font.font_size = tmp_font_size;
-		}else{
-			DWORD offset = 0;
-			// WORD tmp_font_size = font.font_size;
-			// font.font_size = b.textsize;
-			for(size_t i=0; i < b.text.size(); ++i){
-				offset += drawFontChar(font, lines, b.text[i], b.pos.x+offset, b.pos.y+b.size.y/2-b.textsize/2);
-			}
-			// font.font_size = tmp_font_size;
-		}
-	}
-	return SUCCESS;
-}
+// inline ErrCode drawButtons(Window& window, Font& font, std::vector<RectangleData>& rectangles, Button* buttons, WORD button_count)noexcept{
+// 	#ifdef INVALIDHANDLEERRORS
+// 	if(window.handle == NULL) return WINDOW_NOT_FOUND;
+// 	#endif
+// 	for(WORD i=0; i < button_count; ++i){
+// 		Button& b = buttons[i];
+// 		if(!getButtonFlag(b, BUTTON_VISIBLE)) continue;
+// 		if(getButtonFlag(b, BUTTON_DISABLED)){
+// 			if(b.disabled_image == nullptr)
+// 				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.disabled_color});
+// 			else
+// 				drawImage(window, *b.disabled_image, b.pos.x, b.pos.y, b.pos.x+b.size.x, b.pos.y+b.size.y);
+// 		}else if(b.image == nullptr){
+// 			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
+// 				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.hover_color});
+// 			else
+// 				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.color});
+// 		}else{
+// 			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
+// 				drawImage(window, *b.image, b.repos.x, b.repos.y, b.repos.x+b.resize.x, b.repos.y+b.resize.y);
+// 			else
+// 				drawImage(window, *b.image, b.pos.x, b.pos.y, b.pos.x+b.size.x, b.pos.y+b.size.y);
+// 		}
+// 		if(getButtonFlag(b, BUTTON_TEXT_CENTER)){
+// 			DWORD offset = 0;
+// 			WORD tmp_font_size = font.pixelSize;
+// 			font.pixelSize = b.textsize;
+// 			DWORD str_size = getFontStringSize(font, b.text.c_str());
+// 			for(size_t i=0; i < b.text.size(); ++i){
+// 				offset += renderFontChar(window, font, b.text[i], b.pos.x+offset+b.size.x/2-str_size/2, b.pos.y+b.size.y/2-b.textsize/2);
+// 			}
+// 			font.pixelSize = tmp_font_size;
+// 		}else{
+// 			DWORD offset = 0;
+// 			WORD tmp_font_size = font.pixelSize;
+// 			font.pixelSize = b.textsize;
+// 			for(size_t i=0; i < b.text.size(); ++i){
+// 				offset += renderFontChar(window, font, b.text[i], b.pos.x+offset, b.pos.y+b.size.y/2-b.textsize/2);
+// 			}
+// 			font.pixelSize = tmp_font_size;
+// 		}
+// 	}
+// 	return SUCCESS;
+// }
 
-inline void updateButtons(Window& window, Font& font, std::vector<LineData>& lines, std::vector<RectangleData>& rectangles, Button* buttons, WORD button_count)noexcept{
-	buttonsClicked(buttons, button_count);
-	drawButtons(window, font, lines, rectangles, buttons, button_count);
-}
+// inline void updateButtons(Window& window, Font& font, std::vector<RectangleData>& rectangles, Button* buttons, WORD button_count)noexcept{
+// 	buttonsClicked(buttons, button_count);
+// 	drawButtons(window, font, rectangles, buttons, button_count);
+// }
 
-struct Label{
-	std::string text;
-	ivec2 pos = {0, 0};
-	DWORD textcolor = RGBA(180, 180, 180);
-	WORD text_size = 2;
-};
+// struct Label{
+// 	std::string text;
+// 	ivec2 pos = {0, 0};
+// 	DWORD textcolor = RGBA(180, 180, 180);
+// 	WORD text_size = 2;
+// };
 
-enum MENUFLAGS{
-	MENU_OPEN=1,
-	MENU_OPEN_TOGGLE=2
-};
-#define MAX_BUTTONS 10
-#define MAX_STRINGS 20
-#define MAX_IMAGES 5
-struct Menu{
-	Image* images[MAX_IMAGES];	//Sind für die Buttons
-	BYTE image_count = 0;
-	Button buttons[MAX_BUTTONS];
-	BYTE button_count = 0;
-	BYTE flags = MENU_OPEN;		//Bits: offen, toggle bit für offen, Rest ungenutzt
-	ivec2 pos = {};				//TODO Position in Bildschirmpixelkoordinaten
-	Label labels[MAX_STRINGS];
-	BYTE label_count = 0;
-};
+// enum MENUFLAGS{
+// 	MENU_OPEN=1,
+// 	MENU_OPEN_TOGGLE=2
+// };
+// #define MAX_BUTTONS 10
+// #define MAX_STRINGS 20
+// #define MAX_IMAGES 5
+// struct Menu{
+// 	Image* images[MAX_IMAGES];	//Sind für die Buttons
+// 	BYTE image_count = 0;
+// 	Button buttons[MAX_BUTTONS];
+// 	BYTE button_count = 0;
+// 	BYTE flags = MENU_OPEN;		//Bits: offen, toggle bit für offen, Rest ungenutzt
+// 	ivec2 pos = {};				//TODO Position in Bildschirmpixelkoordinaten
+// 	Label labels[MAX_STRINGS];
+// 	BYTE label_count = 0;
+// };
 
-void destroyMenu(Menu& menu)noexcept{
-	for(WORD i=0; i < menu.image_count; ++i){
-		destroyImage(*menu.images[i]);
-	}
-}
+// void destroyMenu(Menu& menu)noexcept{
+// 	for(WORD i=0; i < menu.image_count; ++i){
+// 		destroyImage(*menu.images[i]);
+// 	}
+// }
 
-inline constexpr void setMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags |= flag;}
-inline constexpr void resetMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags &= ~flag;}
-inline constexpr bool getMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{return (menu.flags&flag);}
+// inline constexpr void setMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags |= flag;}
+// inline constexpr void resetMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags &= ~flag;}
+// inline constexpr bool getMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{return (menu.flags&flag);}
 
-inline void updateMenu(Window& window, Menu& menu, Font& font, std::vector<LineData>& lines, std::vector<RectangleData>& rectangles)noexcept{
-	if(getMenuFlag(menu, MENU_OPEN)){
-		updateButtons(window, font, lines, rectangles, menu.buttons, menu.button_count);
-		for(WORD i=0; i < menu.label_count; ++i){
-			Label& label = menu.labels[i];
-			DWORD offset = 0;
-			for(size_t j=0; j < label.text.size(); ++j){
-				// WORD tmp = font.font_size;
-				// font.font_size = label.text_size;
-				offset += drawFontChar(font, lines, label.text[j], label.pos.x+offset, label.pos.y);
-				// font.font_size = tmp;
-			}
-		}
-	}
-}
+// inline void updateMenu(Window& window, Menu& menu, Font& font, std::vector<RectangleData>& rectangles)noexcept{
+// 	if(getMenuFlag(menu, MENU_OPEN)){
+// 		updateButtons(window, font, rectangles, menu.buttons, menu.button_count);
+// 		for(WORD i=0; i < menu.label_count; ++i){
+// 			Label& label = menu.labels[i];
+// 			DWORD offset = 0;
+// 			for(size_t j=0; j < label.text.size(); ++j){
+// 				WORD tmp = font.pixelSize;
+// 				font.pixelSize = label.text_size;
+// 				offset += renderFontChar(window, font, label.text[j], label.pos.x+offset, label.pos.y);
+// 				font.pixelSize = tmp;
+// 			}
+// 		}
+// 	}
+// }

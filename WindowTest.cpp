@@ -3,6 +3,7 @@
 
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
+std::vector<CharData> chars;
 
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){
     Window window;
@@ -28,14 +29,22 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         clearWindow(window);
 
-        drawFontString(window, font, "The quick brown fox jumps over the lazy dog.", 10, 10);
-        // renderFontChar(window, font, '!', 100, 0);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*2);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*3);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*4);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*5);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*6);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*7);
 
         renderCircles(window, circles.data(), circles.size());
         renderLines(window, lines.data(), lines.size());
+        renderFontChars(window, font, chars.data(), chars.size());
         drawWindow(window);
         circles.clear();
         lines.clear();
+        chars.clear();
         Sleep(16);
     }
     destroyFont(font);

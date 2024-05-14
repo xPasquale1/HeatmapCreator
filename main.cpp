@@ -692,7 +692,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         resetTimer(timer);
 
         getMessages(window);
-        updateButtons(window, font, lines, rectangles, buttons, sizeof(buttons)/sizeof(Button));
+        updateButtons(window, font, rectangles, buttons, sizeof(buttons)/sizeof(Button));
         clearWindow(window);
 
         if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
@@ -745,7 +745,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                     WORD height = (valueCounter[i]*(window.windowHeight-50))/maxCount;
                     lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
                 }
-                drawFontString(font, lines, longToString(singleRssiData.size()), 220, 80);
+                drawFontString(window, font, longToString(singleRssiData.size()), 220, 80);
                 break;
             }
         }
@@ -755,10 +755,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         if(point){
             selectedStrength = point->rssi[showHeatmapIdx];
         }
-        DWORD offset = drawFontString(font, lines, longToString(-selectedStrength), 10, 10);
-        drawFontString(font, lines, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
+        DWORD offset = drawFontString(window, font, longToString(-selectedStrength), 10, 10);
+        drawFontString(window, font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
 
-        offset += drawFontString(font, lines, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
+        offset += drawFontString(window, font, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
         buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
@@ -774,7 +774,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         std::string fpsTime = "FPS: ";
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
-        drawFontString(font, lines, fpsTime.c_str(), 40+offset, 10);
+        drawFontString(window, font, fpsTime.c_str(), 40+offset, 10);
 
         renderRectangles(window, rectangles.data(), rectangles.size());
         renderLines(window, lines.data(), lines.size());
