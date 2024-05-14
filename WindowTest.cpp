@@ -37,6 +37,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*5);
         drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*6);
         drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*7);
+        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*8);
 
         renderCircles(window, circles.data(), circles.size());
         renderLines(window, lines.data(), lines.size());

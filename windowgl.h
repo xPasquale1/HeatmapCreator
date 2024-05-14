@@ -975,6 +975,8 @@ struct CharData{
 	BYTE character;
 };
 
+static CharData** _chars[256];
+#define MAXCHARS 1200
 ErrCode initDrawFontCharProgram(){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
@@ -1011,19 +1013,20 @@ ErrCode initDrawFontCharProgram(){
     glLinkProgram(drawFontCharProgram);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+	for(WORD i=0; i < 256; ++i){
+		_chars[i] = new CharData*[MAXCHARS];
+	}
 	return SUCCESS;
 }
 //TODO anstatt die CharData so unnötig hin un her zu kopieren, wäre es besser keinen std::vector zu nutzen, sondern eine Datenstruktur bei der man direkt
 //sagen kann, dass ein neuer Char mit Verschiebung,... hinzugefügt werden soll, also eine Art std::vector<std::vector<CharData>> und dann kann man sich auch 
 //das Member character sparen, muss aber auch immer zählen wie viele es nun gibt
-#define MAXCHARS 200
 ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD count){
 	wglMakeCurrent(GetDC(window.handle), window.glContext);
 
-	CharData* chars[256][MAXCHARS];
 	DWORD charCounter[256]{0};
 	for(DWORD i=0; i < count; ++i){
-		chars[characters[i].character][charCounter[characters[i].character]] = &characters[i];
+		_chars[characters[i].character][charCounter[characters[i].character]] = &characters[i];
 		charCounter[characters[i].character] += 1;
 	}
 
@@ -1070,7 +1073,7 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 		}
 		offset = 0;
 		for(DWORD j=0; j < charCounter[i]; ++j){
-			glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(WORD)*3, chars[i][j]);		//Setzt vorraus, dass x, y und pixelSize direkt nacheinander im struct sind!
+			glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(WORD)*3, _chars[i][j]);		//Setzt vorraus, dass x, y und pixelSize direkt nacheinander im struct sind!
 			offset += sizeof(WORD)*3;
 		}
 
