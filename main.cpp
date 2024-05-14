@@ -31,6 +31,7 @@ UDPServer mainServer;
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
 std::vector<RectangleData> rectangles;
+std::vector<CharData> chars;
 
 //TODO Annahme Signalstärke von -20dB bis -90dB
 #define MAXDB 90
@@ -692,7 +693,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         resetTimer(timer);
 
         getMessages(window);
-        updateButtons(window, font, rectangles, buttons, sizeof(buttons)/sizeof(Button));
+        updateButtons(window, font, rectangles, chars, buttons, sizeof(buttons)/sizeof(Button));
         clearWindow(window);
 
         if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
@@ -745,7 +746,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                     WORD height = (valueCounter[i]*(window.windowHeight-50))/maxCount;
                     lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
                 }
-                drawFontString(window, font, longToString(singleRssiData.size()), 220, 80);
+                drawFontString(window, font, chars, longToString(singleRssiData.size()), 220, 80);
                 break;
             }
         }
@@ -755,10 +756,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         if(point){
             selectedStrength = point->rssi[showHeatmapIdx];
         }
-        DWORD offset = drawFontString(window, font, longToString(-selectedStrength), 10, 10);
-        drawFontString(window, font, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
+        DWORD offset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
+        drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
 
-        offset += drawFontString(window, font, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
+        offset += drawFontString(window, font, chars, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
         buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
@@ -774,15 +775,17 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         std::string fpsTime = "FPS: ";
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
-        drawFontString(window, font, fpsTime.c_str(), 40+offset, 10);
+        drawFontString(window, font, chars, fpsTime.c_str(), 40+offset, 10);
 
         renderRectangles(window, rectangles.data(), rectangles.size());
         renderLines(window, lines.data(), lines.size());
         renderCircles(window, circles.data(), circles.size());
+        renderFontChars(window, font, chars.data(), chars.size());
         drawWindow(window);
         lines.clear();
         rectangles.clear();
         circles.clear();
+        chars.clear();
         if(getWindowFlag(window, WINDOW_CLOSE)) running = false;
         //TODO muss nicht ständig aufgerufen werden...
         if(!SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)) ErrCheck(GENERIC_ERROR, "Exectution State setzen");
