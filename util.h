@@ -112,13 +112,12 @@ inline constexpr __attribute__((always_inline)) const char* stringLookUp2(long v
 			"09192939495969798999"[value<<1];
 }
 //std::to_string ist langsam, das ist simpel und schnell
-static char _dec_to_str_out[12] = "00000000000";
+static char _dec_to_str_out[12] = "0000000000\0";
 inline const char* longToString(long value){
-	char* ptr = _dec_to_str_out + 11;
-	*ptr = '0';
+	char* ptr = _dec_to_str_out + 10;
 	char c = 0;
-	if(value <= 0){
-		value < 0 ? c = '-' : c = '0';
+	if(value < 0){
+		c = '-';
 		value = 0-value;
 	}
 	while(value >= 100){

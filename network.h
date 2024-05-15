@@ -8,6 +8,7 @@
 
 struct UDPServer{
     SOCKET socket;
+    sockaddr_in receiver;
 };
 
 enum MESSAGECODES{
@@ -16,7 +17,9 @@ enum MESSAGECODES{
     SEND_SIGNALSTRENGTH,
     ADD_ROUTER,
     SETSENDIP,
-    ACK
+    ACK,
+    SEND_SINGLE,
+    REQUEST_SCAN
 };
 
 /// @brief Erstellt einen UDP Server auf dem Port port mit einem Timeout von timeoutMillis in Millisekunden für recv-Aufrufe und speichert alle Daten im server struct
@@ -32,6 +35,8 @@ ErrCode createUDPServer(UDPServer& server, u_short port, DWORD timeoutMillis = 1
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
     serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+
+    server.receiver.sin_family = AF_INET;
 
     if(setsockopt(server.socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
 
@@ -63,4 +68,27 @@ int receiveUDPServer(UDPServer& server, char* buffer, int bufferSize, sockaddr_i
     }
     int size = sizeof(sockaddr);
     return recvfrom(server.socket, buffer, bufferSize, 0, (sockaddr*)transmitter, &size);
+}
+
+void changeUDPServerDestination(UDPServer& server, const char* ip, u_short port){
+    server.receiver.sin_addr.s_addr = inet_addr(ip);
+    server.receiver.sin_port = htons(port);
+}
+
+void changeUDPServerDestination(UDPServer& server, u_long ip, u_short port){
+    server.receiver.sin_addr.s_addr = ip;
+    server.receiver.sin_port = htons(port);
+}
+
+int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, char* buffer, int bufferSize){
+    char sendBuffer[20];
+    int sendBufferLength = 0;
+    sendBuffer[0] = code;
+    switch(code){
+        case REQUEST_SCAN:
+            sendBufferLength = 1;
+            break;
+        default: return -1;
+    }
+    return sendto(server.socket, sendBuffer, sendBufferLength, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));
 }

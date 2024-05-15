@@ -1090,14 +1090,14 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 	return SUCCESS;
 }
 
-ErrCode drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y){
+DWORD drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y){
 	WORD offset = 0;
 	for(size_t i=0; i < strlen(string); ++i){
 		glyphs.push_back({(WORD)(x+offset), y, font.pixelSize, (BYTE)string[i]});
 		float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
 		offset += font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth/scalingFactor : font.horMetrics[0].advanceWidth/scalingFactor;
 	}
-	return SUCCESS;
+	return offset;
 }
 
 DWORD drawFontCharOutline(Font& font, std::vector<LineData>& lines, BYTE character, WORD x, WORD y){
@@ -1124,13 +1124,20 @@ DWORD drawFontStringOutline(Font& font, std::vector<LineData>& lines, const char
 
 DWORD getFontStringSize(Font& font, const char* string){
 	DWORD size = 0;
+	float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
+	if(font.horMetricsCount <= 1) return strlen(string)*font.horMetrics[0].advanceWidth/scalingFactor;
 	for(size_t i=0; i < strlen(string); ++i){
-		size += font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth;
+		size += font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth/scalingFactor;
 	}
 	return size;
 }
 
 //-------------------------------GUI-------------------------------
+
+struct ScreenVec{
+	WORD x;
+	WORD y;
+};
 
 ErrCode _defaultEvent(void*)noexcept{return SUCCESS;}
 enum BUTTONFLAGS{
@@ -1146,10 +1153,10 @@ struct Button{
 	std::string text;
 	Image* image = nullptr;
 	Image* disabled_image = nullptr;
-	ivec2 pos = {0, 0};
-	ivec2 repos = {0, 0};
-	ivec2 size = {50, 10};
-	ivec2 resize = {55, 11};
+	ScreenVec pos = {0, 0};
+	ScreenVec repos = {0, 0};
+	ScreenVec size = {50, 10};
+	ScreenVec resize = {55, 11};
 	BYTE flags = BUTTON_VISIBLE | BUTTON_CAN_HOVER;
 	DWORD color = RGBA(120, 120, 120);
 	DWORD hover_color = RGBA(120, 120, 255);
@@ -1194,14 +1201,14 @@ ErrCode drawButtons(Window& window, Font& font, std::vector<RectangleData>& rect
 		if(!getButtonFlag(b, BUTTON_VISIBLE)) continue;
 		if(getButtonFlag(b, BUTTON_DISABLED)){
 			if(b.disabled_image == nullptr)
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.disabled_color});
+				rectangles.push_back({b.pos.x, b.pos.y, b.size.x, b.size.y, b.disabled_color});
 			else
 				drawImage(window, *b.disabled_image, b.pos.x, b.pos.y, b.pos.x+b.size.x, b.pos.y+b.size.y);
 		}else if(b.image == nullptr){
 			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.hover_color});
+				rectangles.push_back({b.pos.x, b.pos.y, b.size.x, b.size.y, b.hover_color});
 			else
-				rectangles.push_back({(WORD)b.pos.x, (WORD)b.pos.y, (WORD)b.size.x, (WORD)b.size.y, b.color});
+				rectangles.push_back({b.pos.x, b.pos.y, b.size.x, b.size.y, b.color});
 		}else{
 			if(getButtonFlag(b, BUTTON_CAN_HOVER) && getButtonFlag(b, BUTTON_HOVER))
 				drawImage(window, *b.image, b.repos.x, b.repos.y, b.repos.x+b.resize.x, b.repos.y+b.resize.y);
@@ -1231,7 +1238,7 @@ void updateButtons(Window& window, Font& font, std::vector<RectangleData>& recta
 
 struct Label{
 	std::string text;
-	ivec2 pos = {0, 0};
+	ScreenVec pos = {0, 0};
 	DWORD textcolor = RGBA(180, 180, 180);
 	WORD text_size = 2;
 };
@@ -1272,4 +1279,25 @@ void updateMenu(Window& window, Menu& menu, Font& font, std::vector<RectangleDat
 			drawFontString(window, font, chars, label.text.c_str(), label.pos.x, label.pos.y);
 		}
 	}
+}
+
+enum TEXTINPUTFLAGS{
+	HASFOCUS=1,
+	ACTIVE=2
+};
+struct TextInput{
+	ScreenVec pos;
+	ScreenVec size;
+	WORD textSize;	//TODO meh
+	BYTE flags = 0;
+	DWORD color;
+	std::string text;
+};
+
+constexpr void setTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{textInput.flags |= flag;}
+constexpr void resetTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{textInput.flags &= ~flag;}
+constexpr bool getTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{return (textInput.flags&flag);}
+
+void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& chars)noexcept{
+	rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.size.y, textInput.color});
 }

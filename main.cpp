@@ -394,7 +394,14 @@ ErrCode iterateHeatmaps(void* buttonPtr)noexcept{
 }
 
 ErrCode clearHeatmaps(void*)noexcept{
-    clearHashmap(datapoints);
+    switch(mode){
+        case HEATMAPMODE:
+            clearHashmap(datapoints);
+            break;
+        case DISPLAYMODE:
+            singleRssiData.clear();
+            break;
+    }
     return SUCCESS;
 }
 
@@ -482,6 +489,14 @@ ErrCode incRouterCount()noexcept{
     return SUCCESS;
 }
 ErrCode decRouterCount()noexcept{
+    return SUCCESS;
+}
+
+ErrCode requestScan(void*)noexcept{
+    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCAN, nullptr, 0) <= 0){
+        std::cerr << WSAGetLastError() << std::endl;
+        return GENERIC_ERROR;
+    }
     return SUCCESS;
 }
 
@@ -577,6 +592,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
+    changeUDPServerDestination(mainServer, "192.168.137.133", 4984);
     // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
@@ -599,9 +615,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         heatmapsInterpolated[i].data = new DWORD[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
     }
 
-    Button buttons[11];
-    ivec2 buttonSize = {180, 60};
-    ivec2 buttonPos = {10, 80};
+    Button buttons[12];
+    ScreenVec buttonSize = {180, 60};
+    ScreenVec buttonPos = {10, 80};
     buttons[0].pos = buttonPos;
     buttons[0].size = buttonSize;
     buttons[0].text = "Datenpunkte";
@@ -654,7 +670,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[7].text = "+";
     buttons[7].event = incSearchRadius;
     buttons[7].textsize = 24;
-    buttons[8].pos = {(int)(buttonPos.x+buttonSize.y+buttonSize.y*0.125), buttonPos.y};
+    buttons[8].pos = {(WORD)(buttonPos.x+buttonSize.y+buttonSize.y*0.125), buttonPos.y};
     buttons[8].size = {buttonSize.y, buttonSize.y};
     buttons[8].text = "-";
     buttons[8].event = decSearchRadius;
@@ -674,6 +690,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[10].event = toggleWeightingQuality;
     buttons[10].data = &buttons[10];
     buttons[10].textsize = 24;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    buttons[11].pos = buttonPos;
+    buttons[11].size = buttonSize;
+    buttons[11].text = "Request RSSI";
+    buttons[11].event = requestScan;
+    buttons[11].data = &buttons[11];
+    buttons[11].textsize = 26;
 
     std::thread getStrengthThread(processNetworkPackets);
 
@@ -696,25 +719,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         updateButtons(window, font, rectangles, chars, buttons, sizeof(buttons)/sizeof(Button));
         clearWindow(window);
 
-        if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
-        else{
-            Image dataPointsImage;
-            dataPointsImage.width = DATAPOINTRESOLUTIONX;
-            dataPointsImage.height = DATAPOINTRESOLUTIONY;
-            dataPointsImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
-            HashmapIterator iterator = {};
-            iterator = iterateHashmap(datapoints, iterator);
-            while(iterator.valid){
-                Datapoint& dataPoint = *(Datapoint*)(iterator.data);
-                iterator = iterateHashmap(datapoints, iterator);
-                BYTE color = dataPoint.rssi[showHeatmapIdx];
-                color = rssiToColorComponent(color);
-                dataPointsImage.data[dataPoint.y*DATAPOINTRESOLUTIONX+dataPoint.x] = RGBA(color, 255-color, 0);
-            }
-            drawImage(window, dataPointsImage, 200, 0, window.windowWidth, window.windowHeight);
-            destroyImage(dataPointsImage);
-        }
-
         switch(mode){
             case SEARCHMODE:{
                 calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
@@ -723,6 +727,24 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 break;
             }
             case HEATMAPMODE:{
+                if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
+                else{
+                    Image dataPointsImage;
+                    dataPointsImage.width = DATAPOINTRESOLUTIONX;
+                    dataPointsImage.height = DATAPOINTRESOLUTIONY;
+                    dataPointsImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
+                    HashmapIterator iterator = {};
+                    iterator = iterateHashmap(datapoints, iterator);
+                    while(iterator.valid){
+                        Datapoint& dataPoint = *(Datapoint*)(iterator.data);
+                        iterator = iterateHashmap(datapoints, iterator);
+                        BYTE color = dataPoint.rssi[showHeatmapIdx];
+                        color = rssiToColorComponent(color);
+                        dataPointsImage.data[dataPoint.y*DATAPOINTRESOLUTIONX+dataPoint.x] = RGBA(color, 255-color, 0);
+                    }
+                    drawImage(window, dataPointsImage, 200, 0, window.windowWidth, window.windowHeight);
+                    destroyImage(dataPointsImage);
+                }
                 WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
                 WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
                 if(blink%32 < 8) rectangles.push_back({(WORD)(200+gx*tileSizeX), (WORD)(gy*tileSizeY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
@@ -732,19 +754,28 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             }
             case DISPLAYMODE:{
                 WORD valueCounter[MAXDB-MINDB]{0};
-                for(SBYTE rssi : singleRssiData){
-                    float range = ((float)abs(rssi)-MINDB)/(MAXDB-MINDB);
-                    valueCounter[abs(rssi)] += 1;
-                }
-                WORD maxCount = 1;
+                for(SBYTE rssi : singleRssiData) valueCounter[abs(rssi)-MINDB] += 1;
+                WORD maxCount = 0;
+                BYTE maxIdx = 0;
                 for(WORD i=0; i < MAXDB-MINDB; ++i){
-                    if(valueCounter[i] > maxCount) maxCount = valueCounter[i];
+                    if(valueCounter[i] > maxCount){
+                        maxCount = valueCounter[i];
+                        maxIdx = i;
+                    }
                 }
+                if(maxCount == 0) maxCount = 1;
                 WORD posX = 200;
                 WORD incX = (window.windowWidth-200)/(MAXDB-MINDB);
                 for(WORD i=0; i < MAXDB-MINDB; ++i){
-                    WORD height = (valueCounter[i]*(window.windowHeight-50))/maxCount;
-                    lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
+                    WORD height = (valueCounter[i]*(window.windowHeight-60))/maxCount;
+                    if(i == maxIdx){
+                        const char* string = longToString(-(i+MINDB));
+                        DWORD size = getFontStringSize(font, string);
+                        drawFontString(window, font, chars, string, (WORD)(posX+incX*i+incX/2-size/2), (WORD)(window.windowHeight-height-font.pixelSize-incX/2.f));
+                        lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 40, 40)});
+                    }else{
+                        lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
+                    }
                 }
                 drawFontString(window, font, chars, longToString(singleRssiData.size()), 220, 80);
                 break;
@@ -756,11 +787,11 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         if(point){
             selectedStrength = point->rssi[showHeatmapIdx];
         }
-        DWORD offset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
-        drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 20+offset, 10);
+        DWORD selectedStrengthStringoffset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
+        selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
 
-        offset += drawFontString(window, font, chars, longToString(searchRadius), (int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
-        buttons[8].pos = {(int)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
+        DWORD offset = drawFontString(window, font, chars, longToString(searchRadius), (buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
+        buttons[8].pos = {(WORD)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
             int x = mouse.x-200;
@@ -775,7 +806,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         std::string fpsTime = "FPS: ";
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
-        drawFontString(window, font, chars, fpsTime.c_str(), 40+offset, 10);
+        drawFontString(window, font, chars, fpsTime.c_str(), 50+selectedStrengthStringoffset, 10);
 
         renderRectangles(window, rectangles.data(), rectangles.size());
         renderLines(window, lines.data(), lines.size());
