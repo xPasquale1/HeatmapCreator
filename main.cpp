@@ -27,6 +27,7 @@
 Window window;
 Font font;
 UDPServer mainServer;
+TextInput routerInput;
 
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
@@ -41,7 +42,7 @@ std::vector<CharData> chars;
 #define DATAPOINTRESOLUTIONY 20
 #define INTERPOLATEDHEATMAPX 800
 #define INTERPOLATEDHEATMAPY 800
-#define HEATMAPCOUNT 3
+#define HEATMAPCOUNT 4
 
 enum MODES{
     HEATMAPMODE,
@@ -67,6 +68,8 @@ static bool running = true;
 static WORD gx = 0;
 static WORD gy = 0;
 static BYTE blink = 0;
+
+LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 //Fügt einen neuen globalen Datepunkt hinzu, sollte es diesen nicht schon bereits an der Position geben
 void changeDatapoint(BYTE* rssi, WORD x, WORD y){
@@ -500,6 +503,19 @@ ErrCode requestScan(void*)noexcept{
     return SUCCESS;
 }
 
+ErrCode sendRouterName(void*)noexcept{
+    if(routerInput.text.size() < 1) return SUCCESS;
+    char buffer[routerInput.text.size()];
+    if(sendMessagecodeUDPServer(mainServer, ADD_ROUTER, routerInput.text.c_str(), routerInput.text.size()) < 1) return GENERIC_ERROR;
+    routerInput.text.clear();
+    return SUCCESS;
+}
+
+ErrCode resetRouters(void*)noexcept{
+    if(sendMessagecodeUDPServer(mainServer, RESET_ROUTERS, nullptr, 0) < 1) return GENERIC_ERROR;
+    return SUCCESS;
+}
+
 //TODO Qualität berechnen kann bestimmt noch besser gehen
 
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
@@ -594,7 +610,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
     changeUDPServerDestination(mainServer, "192.168.137.133", 4984);
     // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
-    if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster"), "Fenster erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
     // if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
     
@@ -615,7 +631,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         heatmapsInterpolated[i].data = new DWORD[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
     }
 
-    Button buttons[12];
+    Button buttons[13];
     ScreenVec buttonSize = {180, 60};
     ScreenVec buttonPos = {10, 80};
     buttons[0].pos = buttonPos;
@@ -698,6 +714,20 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[11].data = &buttons[11];
     buttons[11].textsize = 26;
 
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    routerInput.pos = buttonPos;
+    routerInput.size = buttonSize;
+    routerInput.textSize = 32;
+    routerInput.event = sendRouterName;
+
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    buttons[12].pos = buttonPos;
+    buttons[12].size = buttonSize;
+    buttons[12].text = "Reset Routers";
+    buttons[12].event = resetRouters;
+    buttons[12].textsize = 26;
+
+
     std::thread getStrengthThread(processNetworkPackets);
 
     Image distanceImage;
@@ -717,6 +747,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         getMessages(window);
         updateButtons(window, font, rectangles, chars, buttons, sizeof(buttons)/sizeof(Button));
+        updateTextInput(window, routerInput, font, rectangles, chars);
         clearWindow(window);
 
         switch(mode){
@@ -791,7 +822,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
 
         DWORD offset = drawFontString(window, font, chars, longToString(searchRadius), (buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
-        buttons[8].pos = {(WORD)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125+offset), buttons[7].pos.y};
+        buttons[8].pos = {(WORD)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
 
         if(getButton(mouse, MOUSE_LMB)){
             int x = mouse.x-200;
@@ -846,4 +877,50 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         destroyImage(heatmapsInterpolated[i]);
     }
     return 0;
+}
+
+LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam){
+	Window* window = (Window*)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+	if(window == nullptr || window->handle == NULL) return DefWindowProc(hwnd, uMsg, wParam, lParam);	//TODO das ist ein Fehler, wie melden aber?
+	switch(uMsg){
+		case WM_CLOSE:
+		case WM_DESTROY:{
+			ErrCheck(setWindowFlag(*window, WINDOW_CLOSE), "setze close Fensterstatus");
+			return 0;
+		}
+		case WM_SIZE:{
+			UINT width = LOWORD(lParam);
+			UINT height = HIWORD(lParam);
+			if(!width || !height) break;
+			ErrCheck(setWindowFlag(*window, WINDOW_RESIZE), "setzte resize Fensterstatus");
+			ErrCheck(resizeWindow(*window, width, height, 1), "Fenster skalieren");
+			break;
+		}
+		case WM_LBUTTONDOWN:{
+			setButton(mouse, MOUSE_LMB);
+			break;
+		}
+		case WM_LBUTTONUP:{
+			resetButton(mouse, MOUSE_LMB);
+			break;
+		}
+		case WM_RBUTTONDOWN:{
+			setButton(mouse, MOUSE_RMB);
+			break;
+		}
+		case WM_RBUTTONUP:{
+			resetButton(mouse, MOUSE_RMB);
+			break;
+		}
+		case WM_MOUSEMOVE:{
+			mouse.x = GET_X_LPARAM(lParam);
+			mouse.y = GET_Y_LPARAM(lParam);
+			break;
+		}
+        case WM_CHAR:{
+            // std::cout << wParam << std::endl;
+            textInputCharEvent(routerInput, wParam);
+        }
+	}
+	return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }

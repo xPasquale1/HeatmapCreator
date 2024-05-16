@@ -318,9 +318,6 @@ LRESULT CALLBACK default_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 			break;
 		}
 		case WM_LBUTTONDOWN:{
-			if(!getButton(mouse, MOUSE_LMB)){
-
-			};
 			setButton(mouse, MOUSE_LMB);
 			break;
 		}
@@ -329,9 +326,6 @@ LRESULT CALLBACK default_window_callback(HWND hwnd, UINT uMsg, WPARAM wParam, LP
 			break;
 		}
 		case WM_RBUTTONDOWN:{
-			if(!getButton(mouse, MOUSE_RMB)){
-
-			};
 			setButton(mouse, MOUSE_RMB);
 			break;
 		}
@@ -1157,7 +1151,7 @@ struct Button{
 	ScreenVec repos = {0, 0};
 	ScreenVec size = {50, 10};
 	ScreenVec resize = {55, 11};
-	BYTE flags = BUTTON_VISIBLE | BUTTON_CAN_HOVER;
+	BYTE flags = BUTTON_VISIBLE | BUTTON_CAN_HOVER | BUTTON_TEXT_CENTER;
 	DWORD color = RGBA(120, 120, 120);
 	DWORD hover_color = RGBA(120, 120, 255);
 	DWORD textcolor = RGBA(180, 180, 180);
@@ -1271,33 +1265,88 @@ constexpr void setMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags |= fla
 constexpr void resetMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{menu.flags &= ~flag;}
 constexpr bool getMenuFlag(Menu& menu, MENUFLAGS flag)noexcept{return (menu.flags&flag);}
 
-void updateMenu(Window& window, Menu& menu, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& chars)noexcept{
+void updateMenu(Window& window, Menu& menu, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& glyphs)noexcept{
 	if(getMenuFlag(menu, MENU_OPEN)){
-		updateButtons(window, font, rectangles, chars, menu.buttons, menu.button_count);
+		updateButtons(window, font, rectangles, glyphs, menu.buttons, menu.button_count);
 		for(WORD i=0; i < menu.label_count; ++i){
 			Label& label = menu.labels[i];
-			drawFontString(window, font, chars, label.text.c_str(), label.pos.x, label.pos.y);
+			drawFontString(window, font, glyphs, label.text.c_str(), label.pos.x, label.pos.y);
 		}
 	}
 }
 
+ErrCode defaultTextInputEvent(void*)noexcept{return SUCCESS;}
 enum TEXTINPUTFLAGS{
 	HASFOCUS=1,
-	ACTIVE=2
+	ACTIVE=2,
+	SCALETOTEXT=4,
+	TEXTCENTERED=8
 };
 struct TextInput{
 	ScreenVec pos;
 	ScreenVec size;
-	WORD textSize;	//TODO meh
-	BYTE flags = 0;
-	DWORD color;
+	WORD textSize;
+	BYTE flags = ACTIVE | TEXTCENTERED;
+	DWORD color = RGBA(120, 120, 120);
+	DWORD focusColor = RGBA(180, 180, 180);
 	std::string text;
+	ErrCode (*event)(void*)noexcept = defaultTextInputEvent;	//Event das bei Eingabe von Enter gecalled wird
 };
 
 constexpr void setTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{textInput.flags |= flag;}
 constexpr void resetTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{textInput.flags &= ~flag;}
 constexpr bool getTextInputFlag(TextInput& textInput, TEXTINPUTFLAGS flag)noexcept{return (textInput.flags&flag);}
 
-void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& chars)noexcept{
-	rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.size.y, textInput.color});
+//Sollte augerufen werden, wenn eine Taste gedrückt wird
+void textInputCharEvent(TextInput& textInput, BYTE character){
+	if(getTextInputFlag(textInput, HASFOCUS)){
+		switch(character){
+			case 8:		//Backspace
+				if(textInput.text.size() > 0) textInput.text.pop_back();
+				break;
+			case 13:	//Enter
+				ErrCheck(textInput.event(nullptr));
+				break;
+			default:
+				if(character < 32 || character > 126) break;
+				textInput.text += character;
+				break;
+		}
+	}
+}
+
+void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& glyphs)noexcept{
+	if(getTextInputFlag(textInput, ACTIVE) && getButton(mouse, MOUSE_LMB)){
+		int dx = mouse.x - textInput.pos.x;
+		int dy = mouse.y - textInput.pos.y;
+		if(dx >= 0 && dx <= textInput.size.x && dy >= 0 && dy <= textInput.size.y){
+			setTextInputFlag(textInput, HASFOCUS);
+		}else{
+			resetTextInputFlag(textInput, HASFOCUS);
+		}
+	}
+	WORD tmpSize = font.pixelSize;
+	font.pixelSize = textInput.textSize;
+	if(getTextInputFlag(textInput, HASFOCUS)){
+		if(getTextInputFlag(textInput, SCALETOTEXT)) rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.textSize, textInput.focusColor});
+		else rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.size.y, textInput.focusColor});
+		if(getTextInputFlag(textInput, TEXTCENTERED)){
+			int offsetY = (textInput.size.y-textInput.textSize)/2;
+			DWORD offset = drawFontString(window, font, glyphs, textInput.text.c_str(), textInput.pos.x, textInput.pos.y+offsetY);
+			rectangles.push_back({(WORD)(textInput.pos.x+offset), (WORD)(textInput.pos.y+offsetY), 2, textInput.textSize, RGBA(220, 220, 220)});
+		}else{
+			DWORD offset = drawFontString(window, font, glyphs, textInput.text.c_str(), textInput.pos.x, textInput.pos.y);
+			rectangles.push_back({(WORD)(textInput.pos.x+offset), textInput.pos.y, 2, textInput.textSize, RGBA(220, 220, 220)});
+		}
+	}else{
+		if(getTextInputFlag(textInput, SCALETOTEXT)) rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.textSize, textInput.color});
+		else rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.size.y, textInput.color});
+		if(getTextInputFlag(textInput, TEXTCENTERED)){
+			int offsetY = (textInput.size.y-textInput.textSize)/2;
+			drawFontString(window, font, glyphs, textInput.text.c_str(), textInput.pos.x, textInput.pos.y+offsetY);
+		}else{
+			drawFontString(window, font, glyphs, textInput.text.c_str(), textInput.pos.x, textInput.pos.y);
+		}
+	}
+	font.pixelSize = tmpSize;
 }

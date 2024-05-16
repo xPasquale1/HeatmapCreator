@@ -16,6 +16,7 @@ enum MESSAGECODES{
     SEND_POSITION_Y,
     SEND_SIGNALSTRENGTH,
     ADD_ROUTER,
+    RESET_ROUTERS,
     SETSENDIP,
     ACK,
     SEND_SINGLE,
@@ -80,11 +81,20 @@ void changeUDPServerDestination(UDPServer& server, u_long ip, u_short port){
     server.receiver.sin_port = htons(port);
 }
 
-int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, char* buffer, int bufferSize){
-    char sendBuffer[20];
+int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, const char* buffer, int bufferSize){
+    char sendBuffer[80];    //TODO könnte zu klein/groß sein
     int sendBufferLength = 0;
     sendBuffer[0] = code;
     switch(code){
+        case RESET_ROUTERS:
+            sendBufferLength = 1;
+            break;
+        case ADD_ROUTER:
+            for(int i=0; i < bufferSize; ++i){
+                sendBuffer[i+1] = buffer[i];
+            }
+            sendBufferLength = bufferSize+1;
+            break;
         case REQUEST_SCAN:
             sendBufferLength = 1;
             break;
