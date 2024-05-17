@@ -60,7 +60,9 @@ struct Datapoint{
 static Hashmap datapoints;
 #define coordinatesToKey(x, y)((x<<16)|y)
 
+
 std::vector<SBYTE> singleRssiData;
+std::vector<SBYTE> rssiData[HEATMAPCOUNT];
 
 static BYTE mode = 0;
 static DWORD searchColor[HEATMAPCOUNT]{0};  //TODO auch zur Laufzeit allokieren und durch das Applikationsinterface veränderbar machen
@@ -108,7 +110,11 @@ void processNetworkPackets()noexcept{
                             ErrCheck(GENERIC_ERROR, std::string("Heatmapdaten von Netzwerk " + std::to_string(i) + " wurden nicht aufgezeichnet!").c_str());
                         }
                         switch(mode){
-                            case HEATMAPMODE: break;
+                            case DISPLAYMODE:
+                            case HEATMAPMODE:{
+                                rssiData[i-1].push_back(buffer[i]);
+                                break;
+                            }
                             case SEARCHMODE:{
                                 BYTE color = rssiToColorComponent(buffer[i]);
                                 searchColor[i-1] = RGBA(color, 255-color, 1);
@@ -402,6 +408,7 @@ ErrCode clearHeatmaps(void*)noexcept{
             clearHashmap(datapoints);
             break;
         case DISPLAYMODE:
+            for(BYTE i=0; i < HEATMAPCOUNT; ++i) rssiData[i].clear();
             singleRssiData.clear();
             break;
     }
@@ -608,7 +615,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "192.168.137.133", 4984);
+    changeUDPServerDestination(mainServer, "192.168.137.78", 4984);
     // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
@@ -785,7 +792,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             }
             case DISPLAYMODE:{
                 WORD valueCounter[MAXDB-MINDB]{0};
-                for(SBYTE rssi : singleRssiData) valueCounter[abs(rssi)-MINDB] += 1;
+                for(SBYTE rssi : rssiData[showHeatmapIdx]) valueCounter[abs(rssi)-MINDB] += 1;
                 WORD maxCount = 0;
                 BYTE maxIdx = 0;
                 for(WORD i=0; i < MAXDB-MINDB; ++i){
@@ -808,7 +815,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                         lines.push_back({(WORD)(posX+incX*i+incX/2), window.windowHeight, (WORD)(posX+incX*i+incX/2), (WORD)(window.windowHeight-height), incX/2.f, RGBA(255, 255, 255)});
                     }
                 }
-                drawFontString(window, font, chars, longToString(singleRssiData.size()), 220, 80);
+                drawFontString(window, font, chars, longToString(rssiData[showHeatmapIdx].size()), 220, 80);
                 break;
             }
         }
