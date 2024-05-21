@@ -38,8 +38,8 @@ std::vector<CharData> chars;
 #define MAXDB 90
 #define MINDB 20
 
-#define DATAPOINTRESOLUTIONX 20
-#define DATAPOINTRESOLUTIONY 20
+#define DATAPOINTRESOLUTIONX 100
+#define DATAPOINTRESOLUTIONY 100
 #define INTERPOLATEDHEATMAPX 800
 #define INTERPOLATEDHEATMAPY 800
 #define HEATMAPCOUNT 4
@@ -58,8 +58,8 @@ struct Datapoint{
     BYTE rssiCount = 0;
 };
 static Hashmap datapoints;
-#define coordinatesToKey(x, y)((x<<16)|y)
 
+#define coordinatesToKey(x, y)((x<<16)|y)
 
 std::vector<SBYTE> singleRssiData;
 std::vector<SBYTE> rssiData[HEATMAPCOUNT];
@@ -503,7 +503,9 @@ ErrCode decRouterCount()noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCAN, nullptr, 0) <= 0){
+    WORD scanCount = 200;
+    char* buffer = (char*)&scanCount;
+    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
         return GENERIC_ERROR;
     }
@@ -615,7 +617,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "192.168.137.78", 4984);
+    changeUDPServerDestination(mainServer, "192.168.137.154", 4984);
     // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
