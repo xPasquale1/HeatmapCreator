@@ -40,8 +40,6 @@ std::vector<CharData> chars;
 
 #define DATAPOINTRESOLUTIONX 100
 #define DATAPOINTRESOLUTIONY 100
-#define INTERPOLATEDHEATMAPX 800
-#define INTERPOLATEDHEATMAPY 800
 #define HEATMAPCOUNT 4
 
 enum MODES{
@@ -245,22 +243,16 @@ struct DatapointTriangle{
 /// @param count Die Anzahl der Datenpunkte
 void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datapoints, DWORD count)noexcept{
     if(count < 3) return;
-    Datapoint scaledDatapoints[count];  //Speichert die Datenpunkte skaliert für die Interpolierung
-    for(DWORD i=0; i < count; ++i){
-        scaledDatapoints[i].x = (datapoints[i].x*INTERPOLATEDHEATMAPX)/DATAPOINTRESOLUTIONX;
-        scaledDatapoints[i].y = (datapoints[i].y*INTERPOLATEDHEATMAPY)/DATAPOINTRESOLUTIONY;
-        scaledDatapoints[i].rssi[heatmapIdx] = datapoints[i].rssi[heatmapIdx];
-    }
     std::vector<DatapointTriangle> triangles;    //Hält alle Datenpunkt Dreiecke TODO kann man im vorab berechnen
 
     for(DWORD i=0; i < count; ++i){
-        Datapoint& p1 = scaledDatapoints[i];
+        Datapoint& p1 = datapoints[i];
         for(DWORD j=0; j < count; ++j){
             if(j == i) continue;
-            Datapoint& p2 = scaledDatapoints[j];
+            Datapoint& p2 = datapoints[j];
             for(DWORD k=0; k < count; ++k){
                 if(k == j || k == i) continue;
-                Datapoint& p3 = scaledDatapoints[k];
+                Datapoint& p3 = datapoints[k];
                 bool valid = true;
 
                 float totalArea = (p2.x-p1.x)*(p3.y-p2.y)-(p2.y-p1.y)*(p3.x-p2.x);
@@ -285,7 +277,7 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                 float radius2 = (centerX-p1.x)*(centerX-p1.x)+(centerY-p1.y)*(centerY-p1.y);
                 for(DWORD l=0; l < count; ++l){
                     if(l == k || l == j || l == i) continue;
-                    Datapoint& p = scaledDatapoints[l];
+                    Datapoint& p = datapoints[l];
                     float distance2 = (centerX-p.x)*(centerX-p.x)+(centerY-p.y)*(centerY-p.y);
                     if(distance2 < radius2){
                         valid = false;
@@ -494,14 +486,6 @@ ErrCode decSearchRadius(void*)noexcept{
     return SUCCESS;
 }
 
-//TODO implementieren
-ErrCode incRouterCount()noexcept{
-    return SUCCESS;
-}
-ErrCode decRouterCount()noexcept{
-    return SUCCESS;
-}
-
 ErrCode requestScan(void*)noexcept{
     WORD scanCount = 200;
     char* buffer = (char*)&scanCount;
@@ -557,7 +541,7 @@ struct DistanceMap{
 };
 void createDistanceMap(DistanceMap& map){
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-        map.distances[i] = new BYTE[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY]{0};
+        map.distances[i] = new BYTE[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
     }
 }
 void destroyDistanceMap(DistanceMap& map){
@@ -566,7 +550,7 @@ void destroyDistanceMap(DistanceMap& map){
 
 //Berechnet eine Distanzemap von einer Heatmap zur SearchColor am Index idx
 void getDistanceMap(Image* heatmapsInterpolated, BYTE idx, DistanceMap& map){
-    for(DWORD j=0; j < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++j){
+    for(DWORD j=0; j < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++j){
         DWORD& pixelColor = heatmapsInterpolated[idx].data[j];
         int diffRed = R(pixelColor)-R(searchColor[idx]);
         map.distances[idx][j] += abs(diffRed);
@@ -577,14 +561,14 @@ void getDistanceMap(Image* heatmapsInterpolated, BYTE idx, DistanceMap& map){
 void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, BYTE heatmapIndex){
     DistanceMap map;
     createDistanceMap(map);
-    float* weightedDistances = new float[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY]{0};
+    float* weightedDistances = new float[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
     float maxDiff = 0;
     if(differenceMode){
         for(BYTE i=0; i < HEATMAPCOUNT; ++i) getDistanceMap(heatmapsInterpolated, i, map);
         for(BYTE i=0; i < HEATMAPCOUNT; ++i){
             float quality;
             weightingQuality ? quality = getHeatmapQuality(i) : quality = 1;
-            for(DWORD j=0; j < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++j){
+            for(DWORD j=0; j < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++j){
                 weightedDistances[j] += map.distances[i][j]*quality;
                 if(weightedDistances[j] > maxDiff) maxDiff = weightedDistances[j];
             }
@@ -593,12 +577,12 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
         getDistanceMap(heatmapsInterpolated, heatmapIndex, map);
         float quality;
         weightingQuality ? quality = getHeatmapQuality(showHeatmapIdx) : quality = 1;
-        for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
+        for(DWORD i=0; i < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++i){
             weightedDistances[i] = map.distances[heatmapIndex][i]*quality;
             if(weightedDistances[i] > maxDiff) maxDiff = weightedDistances[i];
         }
     }
-    for(DWORD i=0; i < INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY; ++i){
+    for(DWORD i=0; i < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++i){
         if(maxDiff == 0) break;
         float val = weightedDistances[i]*255/maxDiff;
         val *= searchRadius;
@@ -619,7 +603,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
     changeUDPServerDestination(mainServer, "192.168.137.154", 4984);
     // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
-    if(ErrCheck(createWindow(window, hInstance, 1200, 1000, 300, 100, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
+    RECT workArea;
+    SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
+    int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
+    if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, 400, 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
     // if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
     
@@ -635,9 +622,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-        heatmapsInterpolated[i].width = INTERPOLATEDHEATMAPX;
-        heatmapsInterpolated[i].height = INTERPOLATEDHEATMAPY;
-        heatmapsInterpolated[i].data = new DWORD[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
+        heatmapsInterpolated[i].width = DATAPOINTRESOLUTIONX;
+        heatmapsInterpolated[i].height = DATAPOINTRESOLUTIONY;
+        heatmapsInterpolated[i].data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
     }
 
     Button buttons[13];
@@ -740,10 +727,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     std::thread getStrengthThread(processNetworkPackets);
 
     Image distanceImage;
-    distanceImage.width = INTERPOLATEDHEATMAPX;
-    distanceImage.height = INTERPOLATEDHEATMAPY;
-    distanceImage.data = new DWORD[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
-    float* distances = new float[INTERPOLATEDHEATMAPX*INTERPOLATEDHEATMAPY];
+    distanceImage.width = DATAPOINTRESOLUTIONX;
+    distanceImage.height = DATAPOINTRESOLUTIONY;
+    distanceImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
+    float* distances = new float[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
 
     Timer timer;
     DWORD deltaTime = 1;
@@ -787,7 +774,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 }
                 WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
                 WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
-                if(blink%32 < 8) rectangles.push_back({(WORD)(200+gx*tileSizeX), (WORD)(gy*tileSizeY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
+                if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
                 blink++;
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
                 break;
@@ -837,8 +824,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             int x = mouse.x-200;
             int y = mouse.y;
             if(x >= 0){
-                gx = (float)x/(window.windowWidth-200)*(DATAPOINTRESOLUTIONX);
-                gy = (float)y/(window.windowHeight)*(DATAPOINTRESOLUTIONY);
+                gx = (float)(x*DATAPOINTRESOLUTIONX)/(window.windowWidth-200);
+                gy = (float)(y*DATAPOINTRESOLUTIONY)/(window.windowHeight);
                 delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
             }
         }
