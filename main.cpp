@@ -55,7 +55,7 @@ struct Datapoint{
     BYTE rssi[HEATMAPCOUNT];    //TODO BYTE* und zur Laufzeit allokieren und den max. Wert in rssiCount merken
     BYTE rssiCount = 0;
 };
-static Hashmap datapoints;
+static Hashmap datapoints;                                                                  //Speichert die Datenpunkte, welche Angeziegt, für Berechnungen,... verwendet werden
 
 #define coordinatesToKey(x, y)((x<<16)|y)
 
@@ -602,15 +602,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
     changeUDPServerDestination(mainServer, "192.168.137.154", 4984);
-    // if(ErrCheck(initApp(), "App init") != SUCCESS) return -1;
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
-    if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, 400, 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
+    int winWidth = workArea.right-workArea.left;
+    if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, winWidth-(winHeight+210), 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
-    // if(ErrCheck(assignAttributeBuffers(window, 1), "Attribute Buffer hinzufügen") != SUCCESS) return -1;
     
-    // if(ErrCheck(createFont(font), "Font erstellen") != SUCCESS) return -1;
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
     Image floorplan;
