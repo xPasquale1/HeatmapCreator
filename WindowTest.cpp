@@ -14,7 +14,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     if(ErrCheck(loadImage("images/cat.tex", image), "Image laden") != SUCCESS) return -1;
 
     Font font;
-    if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
+    if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf", 400), "Font laden") != SUCCESS) return -1;
 
     while(1){
         getMessages(window);
@@ -29,15 +29,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         clearWindow(window);
 
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*2);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*3);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*4);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*5);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*6);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*7);
-        drawFontString(window, font, chars, "The quick brown fox jumps over the lazy dog.", 10, 10+font.pixelSize*8);
+        drawFontCharOutline(font, lines, 'B', 20, 20);
 
         renderCircles(window, circles.data(), circles.size());
         renderLines(window, lines.data(), lines.size());

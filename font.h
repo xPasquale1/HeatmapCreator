@@ -506,7 +506,7 @@ ErrCode loadTTF(Font& font, const char* name, WORD pixelSize = 32)noexcept{
     file.seekg(head->offset, std::ios::beg);
     file.seekg(18, std::ios::cur);  //Alle möglichen Headerdaten skippen
     font.unitsPerEm = readUint16(file);
-    file.seekg(8, std::ios::cur);  //Mehr Headerdaten skippen
+    file.seekg(8, std::ios::cur);   //Mehr Headerdaten skippen
     font.xMin = readInt16(file);
     font.yMin = readInt16(file);
     font.xMax = readInt16(file);

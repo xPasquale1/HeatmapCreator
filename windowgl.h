@@ -1290,6 +1290,7 @@ struct TextInput{
 	DWORD color = RGBA(120, 120, 120);
 	DWORD focusColor = RGBA(180, 180, 180);
 	std::string text;
+	std::string backgroundText;
 	ErrCode (*event)(void*)noexcept = defaultTextInputEvent;	//Event das bei Eingabe von Enter gecalled wird
 };
 
@@ -1319,14 +1320,15 @@ void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vect
 	if(getTextInputFlag(textInput, ACTIVE) && getButton(mouse, MOUSE_LMB)){
 		int dx = mouse.x - textInput.pos.x;
 		int dy = mouse.y - textInput.pos.y;
-		if(dx >= 0 && dx <= textInput.size.x && dy >= 0 && dy <= textInput.size.y){
-			setTextInputFlag(textInput, HASFOCUS);
-		}else{
-			resetTextInputFlag(textInput, HASFOCUS);
-		}
+		if(dx >= 0 && dx <= textInput.size.x && dy >= 0 && dy <= textInput.size.y) setTextInputFlag(textInput, HASFOCUS);
+		else resetTextInputFlag(textInput, HASFOCUS);
 	}
 	WORD tmpSize = font.pixelSize;
 	font.pixelSize = textInput.textSize;
+	if(textInput.text.size() < 1){
+		int offsetY = (textInput.size.y-textInput.textSize)/2;
+		drawFontString(window, font, glyphs, textInput.backgroundText.c_str(), textInput.pos.x, textInput.pos.y+offsetY);
+	}
 	if(getTextInputFlag(textInput, HASFOCUS)){
 		if(getTextInputFlag(textInput, SCALETOTEXT)) rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.textSize, textInput.focusColor});
 		else rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.size.y, textInput.focusColor});

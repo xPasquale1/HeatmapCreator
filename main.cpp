@@ -12,22 +12,21 @@
 
     Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
 
-    Routerdaten und IP an den esp32 senden können
+    IP an den esp32 senden können
 
     Datenpunkte RSSI Anzahl "dynamisch" machen
-    Idee ist eine fest definierte Anzahl an RSSI-Werten auslesen zu wollen, sollte es zu wenige/viele geben,
-    werden diese mit 0 befüllt, daher sollte jeder Datenpunkt die Werte + Anzahl speichern. In der Applikation
-    kann man dann die Anzahl der RSSI Werte angeben. An die meisten Funktionen sollte dann ein Parameter
-    übergeben werden, welches angibt, wie viele RSSI-Werte von den Datenpunkten ausgelesen werden sollen. Das
-    Parameter sollte dann eine globale Variable sein, die zur Laufzeit verändert werden kann.
 
-    Man sollte die Auflösung der Messpunkte festlegen können
+    Datepunktauflösung in der Applikation festelegen können
+
+    Fehler-/Statusmeldungen in der Applikation anzeigen
 */
 
 Window window;
 Font font;
 UDPServer mainServer;
+
 TextInput routerInput;
+TextInput ipInput;
 
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
@@ -509,6 +508,13 @@ ErrCode resetRouters(void*)noexcept{
     return SUCCESS;
 }
 
+ErrCode setEspIP(void*)noexcept{
+    if(ipInput.text.size() < 1) return SUCCESS;
+    changeUDPServerDestination(mainServer, ipInput.text.c_str(), 4984);
+    ipInput.text.clear();
+    return SUCCESS;
+}
+
 //TODO Qualität berechnen kann bestimmt noch besser gehen
 
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
@@ -601,7 +607,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "192.168.137.154", 4984);
+    changeUDPServerDestination(mainServer, "192.168.137.23", 4984);
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
@@ -711,7 +717,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     routerInput.pos = buttonPos;
     routerInput.size = buttonSize;
-    routerInput.textSize = 32;
+    routerInput.backgroundText = "SSID hinzu.";
+    routerInput.textSize = 28;
     routerInput.event = sendRouterName;
 
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
@@ -720,6 +727,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[12].text = "Reset Routers";
     buttons[12].event = resetRouters;
     buttons[12].textsize = 26;
+
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    ipInput.pos = buttonPos;
+    ipInput.size = buttonSize;
+    ipInput.backgroundText = "Esp32 IP";
+    ipInput.textSize = 28;
+    ipInput.event = setEspIP;
 
 
     std::thread getStrengthThread(processNetworkPackets);
@@ -742,6 +756,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         getMessages(window);
         updateButtons(window, font, rectangles, chars, buttons, sizeof(buttons)/sizeof(Button));
         updateTextInput(window, routerInput, font, rectangles, chars);
+        updateTextInput(window, ipInput, font, rectangles, chars);
         clearWindow(window);
 
         switch(mode){
@@ -914,6 +929,7 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
         case WM_CHAR:{
             // std::cout << wParam << std::endl;
             textInputCharEvent(routerInput, wParam);
+            textInputCharEvent(ipInput, wParam);
         }
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
