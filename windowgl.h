@@ -82,7 +82,7 @@ static volatile GLuint drawCirclesProgram;
 static volatile GLuint drawRectanglesProgram;
 static volatile GLuint drawImageProgram;
 static volatile GLuint drawFontCharProgram;
-ErrCode init(){
+ErrCode initGL(){
 	glGetError = (PFNGLGETERRORPROC)loadGlFunction("glGetError");
 	glCreateProgram = (PFNGLCREATEPROGRAMPROC)loadGlFunction("glCreateProgram");
 	glDeleteProgram = (PFNGLDELETEPROGRAMPROC)loadGlFunction("glDeleteProgram");
@@ -967,6 +967,7 @@ struct CharData{
 	WORD y;
 	WORD pixelSize;
 	BYTE character;
+	DWORD color;
 };
 
 static CharData** _chars[256];
@@ -974,14 +975,17 @@ static CharData** _chars[256];
 ErrCode initDrawFontCharProgram(){
 	const GLchar fragmentShaderCode[] = 
 	"#version 330\n"
+	"in vec4 color;"
 	"out vec4 fragColor;"
 	"void main(){"
-	"	fragColor = vec4(1);"
+	"	fragColor = color;"
 	"}";
 	const GLchar vertexShaderCode[] =
 	"#version 330\n"
 	"layout(location=0) in ivec2 pos;"
 	"layout(location=1) in ivec3 data;"
+	"layout(location=2) in uint vColor;"
+	"out vec4 color;"
 	"uniform vec2 wDimensions;"
 	"uniform int yMax;"
 	"uniform int yMin;"
@@ -995,6 +999,11 @@ ErrCode initDrawFontCharProgram(){
 	"	scaledPos.y -= data.y;"
 	"	scaledPos /= wDimensions/2;"
 	"	scaledPos -= 1;"
+	"	float r = float((vColor>>16) & 0xFFu)/255.0;"
+	"	float g = float((vColor>>8) & 0xFFu)/255.0;"
+	"	float b = float((vColor) & 0xFFu)/255.0;"
+	"	float a = float((vColor>>24) & 0xFFu)/255.0;"
+	"	color = vec4(r, g, b, a);"
 	"	gl_Position = vec4(scaledPos, 1.0, 1.0);"
 	"}";
 	drawFontCharProgram = glCreateProgram();
@@ -1029,10 +1038,11 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 		numTriangles += font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles;
 	}
 
-    GLuint VBOPos, VBOData, VAO;
+    GLuint VBOPos, VBOData, VBOColor, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBOPos);
 	glGenBuffers(1, &VBOData);
+	glGenBuffers(1, &VBOColor);
 
     glBindVertexArray(VAO);
 
@@ -1049,10 +1059,16 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBOData);
-	glBufferData(GL_ARRAY_BUFFER, count*sizeof(WORD)*3, nullptr, GL_STATIC_DRAW);	//TODO muss nicht so groß sein
+	glBufferData(GL_ARRAY_BUFFER, count*sizeof(WORD)*3, nullptr, GL_STATIC_DRAW);
 	glEnableVertexAttribArray(1);
 	glVertexAttribIPointer(1, 3, GL_UNSIGNED_SHORT, 0, 0);
 	glVertexAttribDivisor(1, 1);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
+	glBufferData(GL_ARRAY_BUFFER, count*sizeof(DWORD), nullptr, GL_STATIC_DRAW);
+	glEnableVertexAttribArray(2);
+	glVertexAttribIPointer(2, 1, GL_UNSIGNED_INT, 0, 0);
+	glVertexAttribDivisor(2, 1);
 
 	glUseProgram(drawFontCharProgram);
 	glUniform2f(glGetUniformLocation(drawFontCharProgram, "wDimensions"), window.windowWidth, window.windowHeight);
@@ -1066,9 +1082,16 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 			continue;
 		}
 		offset = 0;
+		glBindBuffer(GL_ARRAY_BUFFER, VBOData);
 		for(DWORD j=0; j < charCounter[i]; ++j){
 			glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(WORD)*3, _chars[i][j]);		//Setzt vorraus, dass x, y und pixelSize direkt nacheinander im struct sind!
 			offset += sizeof(WORD)*3;
+		}
+		offset = 0;
+		glBindBuffer(GL_ARRAY_BUFFER, VBOColor);
+		for(DWORD j=0; j < charCounter[i]; ++j){
+			glBufferSubData(GL_ARRAY_BUFFER, offset, sizeof(DWORD), &_chars[i][j]->color);
+			offset += sizeof(DWORD);
 		}
 
 		glDrawArraysInstanced(GL_TRIANGLES, startOffset, font.glyphStorage.glyphs[font.asciiToGlyphMapping[i]].numTriangles*3, charCounter[i]);
@@ -1077,17 +1100,25 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
+	glDisableVertexAttribArray(2);
 
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBOPos);
 	glDeleteBuffers(1, &VBOData);
+	glDeleteBuffers(1, &VBOColor);
 	return SUCCESS;
 }
 
-DWORD drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y){
+//TODO offset muss noch \n beachten
+DWORD drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y, DWORD color = RGBA(255, 255, 255)){
 	WORD offset = 0;
 	for(size_t i=0; i < strlen(string); ++i){
-		glyphs.push_back({(WORD)(x+offset), y, font.pixelSize, (BYTE)string[i]});
+		if(string[i] == '\n'){
+			y += font.pixelSize;
+			offset = 0;
+			continue;
+		}
+		glyphs.push_back({(WORD)(x+offset), y, font.pixelSize, (BYTE)string[i], color});
 		float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
 		offset += font.horMetricsCount > 1 ? font.horMetrics[font.asciiToGlyphMapping[string[i]]].advanceWidth/scalingFactor : font.horMetrics[0].advanceWidth/scalingFactor;
 	}
@@ -1116,6 +1147,7 @@ DWORD drawFontStringOutline(Font& font, std::vector<LineData>& lines, const char
 	return offset;
 }
 
+//TODO muss noch \n beachten
 DWORD getFontStringSize(Font& font, const char* string){
 	DWORD size = 0;
 	float scalingFactor = ((float)(font.yMax-font.yMin))/font.pixelSize;
@@ -1289,6 +1321,7 @@ struct TextInput{
 	BYTE flags = ACTIVE | TEXTCENTERED;
 	DWORD color = RGBA(120, 120, 120);
 	DWORD focusColor = RGBA(180, 180, 180);
+	DWORD backgroundTextColor = RGBA(140, 140, 140);
 	std::string text;
 	std::string backgroundText;
 	ErrCode (*event)(void*)noexcept = defaultTextInputEvent;	//Event das bei Eingabe von Enter gecalled wird
@@ -1327,7 +1360,7 @@ void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vect
 	font.pixelSize = textInput.textSize;
 	if(textInput.text.size() < 1){
 		int offsetY = (textInput.size.y-textInput.textSize)/2;
-		drawFontString(window, font, glyphs, textInput.backgroundText.c_str(), textInput.pos.x, textInput.pos.y+offsetY);
+		drawFontString(window, font, glyphs, textInput.backgroundText.c_str(), textInput.pos.x, textInput.pos.y+offsetY, textInput.backgroundTextColor);
 	}
 	if(getTextInputFlag(textInput, HASFOCUS)){
 		if(getTextInputFlag(textInput, SCALETOTEXT)) rectangles.push_back({textInput.pos.x, textInput.pos.y, textInput.size.x, textInput.textSize, textInput.focusColor});

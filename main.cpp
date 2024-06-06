@@ -40,6 +40,7 @@ std::vector<CharData> chars;
 #define DATAPOINTRESOLUTIONX 100
 #define DATAPOINTRESOLUTIONY 100
 #define HEATMAPCOUNT 4
+ScreenVec routerPositions[HEATMAPCOUNT] = {{290, 460}, {730, 95}, {460, 25}, {0, 280}};     //Positionen sind in Imagespace
 
 enum MODES{
     HEATMAPMODE,
@@ -54,7 +55,7 @@ struct Datapoint{
     BYTE rssi[HEATMAPCOUNT];    //TODO BYTE* und zur Laufzeit allokieren und den max. Wert in rssiCount merken
     BYTE rssiCount = 0;
 };
-static Hashmap datapoints;                                                                  //Speichert die Datenpunkte, welche Angeziegt, für Berechnungen,... verwendet werden
+static Hashmap datapoints;                  //Speichert die Datenpunkte, welche Angeziegt, für Berechnungen,... verwendet werden
 
 #define coordinatesToKey(x, y)((x<<16)|y)
 
@@ -599,6 +600,29 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
     destroyDistanceMap(map);
 }
 
+ScreenVec calculateFinalPosition(Image& distanceImage){
+    std::vector<ScreenVec> positions;
+    BYTE maxVal = 0;
+    for(WORD y=0; y < distanceImage.height; ++y){
+        for(WORD x=0; x < distanceImage.width; ++x){
+            BYTE val = R(distanceImage.data[y*distanceImage.width+x]);
+            if(val > maxVal){
+                maxVal = val;
+                positions.clear();
+                positions.push_back({x, y});
+            }
+            else if(val == maxVal) positions.push_back({x, y});
+        }
+    }
+    QWORD x = 0;
+    QWORD y = 0;
+    for(size_t i=0; i < positions.size(); ++i){
+        x += positions[i].x;
+        y += positions[i].y;
+    }
+    return {(WORD)((x*(window.windowWidth-200))/distanceImage.width/positions.size()), (WORD)((y*window.windowHeight)/distanceImage.height/positions.size())};
+}
+
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){    
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0){
@@ -607,21 +631,22 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "192.168.137.23", 4984);
+    changeUDPServerDestination(mainServer, "192.168.137.34", 4984);
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
     int winWidth = workArea.right-workArea.left;
     if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, winWidth-(winHeight+210), 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
-    if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
+    if(ErrCheck(initGL(), "Init OpenGL") != SUCCESS) return -1;
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
     Image floorplan;
     if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
+    std::cout << floorplan.width << ", " << floorplan.height << std::endl;
     for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
         DWORD color =  floorplan.data[i];
-        floorplan.data[i] = RGBA(R(color)*4, G(color)*4, B(color)*4, 65);   //Macht das Bild heller und Durchsichtig
+        floorplan.data[i] = RGBA(R(color)*4, G(color)*4, B(color)*4, 65);   //Macht das Bild heller und durchsichtig
     }
 
     Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
@@ -762,6 +787,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         switch(mode){
             case SEARCHMODE:{
                 calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
+                ScreenVec position = calculateFinalPosition(distanceImage);
+                circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
                 drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
                 break;
@@ -790,8 +817,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
                 blink++;
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+                    circles.push_back({(WORD)(((QWORD)routerPositions[i].x*(window.windowWidth-200))/floorplan.width+200), (WORD)(((QWORD)routerPositions[i].y*window.windowHeight)/floorplan.height), 8, 0, RGBA(0, 192, 255)});
+                }
                 break;
             }
+            #define DISTANCEFROMTOP window.windowHeight/2
+            #define DATAHISTORYLENGTH 150
             case DISPLAYMODE:{
                 WORD valueCounter[MAXDB-MINDB]{0};
                 for(SBYTE rssi : rssiData[showHeatmapIdx]) valueCounter[abs(rssi)-MINDB] += 1;
@@ -807,7 +839,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 WORD posX = 200;
                 WORD incX = (window.windowWidth-200)/(MAXDB-MINDB);
                 for(WORD i=0; i < MAXDB-MINDB; ++i){
-                    WORD height = (valueCounter[i]*(window.windowHeight-60))/maxCount;
+                    WORD height = (valueCounter[i]*(window.windowHeight-DISTANCEFROMTOP))/maxCount;
                     if(i == maxIdx){
                         const char* string = longToString(-(i+MINDB));
                         DWORD size = getFontStringSize(font, string);
@@ -818,6 +850,24 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                     }
                 }
                 drawFontString(window, font, chars, longToString(rssiData[showHeatmapIdx].size()), 220, 80);
+                DWORD dist = drawFontString(window, font, chars, longToString(-MINDB), 200, 0)+20;
+                drawFontString(window, font, chars, longToString(-MAXDB), 200, DISTANCEFROMTOP-font.pixelSize);
+                drawFontString(window, font, chars, longToString(-(MAXDB-MINDB)/2-MINDB), 200, DISTANCEFROMTOP/2-font.pixelSize/2);
+                WORD offset = (window.windowWidth-200-(dist+20))/(DATAHISTORYLENGTH-1);
+                WORD x = 200+dist+offset;
+                if(rssiData[showHeatmapIdx].size() < 1) break;
+                SBYTE rssi = rssiData[showHeatmapIdx][rssiData[showHeatmapIdx].size()-1];
+                WORD y1 = (abs(rssi)-MINDB)*(window.windowHeight-DISTANCEFROMTOP)/(MAXDB-MINDB);
+                drawFontString(window, font, chars, longToString(rssi), 200+dist, y1);
+                WORD count = DATAHISTORYLENGTH;
+                if(rssiData[showHeatmapIdx].size() < DATAHISTORYLENGTH) count = rssiData[showHeatmapIdx].size();
+                for(WORD i=1; i < count; ++i){
+                    SBYTE rssi = abs(rssiData[showHeatmapIdx][rssiData[showHeatmapIdx].size()-1-i])-MINDB;
+                    WORD y2 = rssi*(window.windowHeight-DISTANCEFROMTOP)/(MAXDB-MINDB);
+                    lines.push_back({(WORD)(x-offset), y1, x, y2, 1, RGBA(0, 160, 255)});
+                    y1 = y2;
+                    x += offset;
+                }
                 break;
             }
         }
@@ -846,7 +896,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         std::string fpsTime = "FPS: ";
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
-        drawFontString(window, font, chars, fpsTime.c_str(), 50+selectedStrengthStringoffset, 10);
+        // drawFontString(window, font, chars, fpsTime.c_str(), 50+selectedStrengthStringoffset, 10);
 
         renderRectangles(window, rectangles.data(), rectangles.size());
         renderLines(window, lines.data(), lines.size());
