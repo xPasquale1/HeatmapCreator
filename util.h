@@ -92,12 +92,14 @@ inline ErrCode ErrCheck(ErrCode code, const char* msg="\0", ErrCodeFlags flags=E
 
 enum MOUSEBUTTON{
 	MOUSE_LMB = 1,
-	MOUSE_RMB = 2
+	MOUSE_RMB = 2,
+	MOUSE_PREV_LMB = 4,
+	MOUSE_PREV_RMB = 8
 };
 struct Mouse{
 	WORD x;
 	WORD y;
-	char button = 0;	//Bits: LMB, RMB, Rest ungenutzt
+	char button = 0;
 }; static Mouse mouse;
 
 inline constexpr bool getButton(Mouse& mouse, MOUSEBUTTON button){return (mouse.button & button);}
@@ -120,6 +122,7 @@ inline const char* longToString(long value){
 		c = '-';
 		value = 0-value;
 	}
+	if(value == 0) *ptr-- = '0';	//TODO Restlicher Code kann in ein else
 	while(value >= 100){
 		const char* tmp = stringLookUp2(value%100);
 		ptr[0] = tmp[0];

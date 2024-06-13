@@ -39,8 +39,9 @@ std::vector<CharData> chars;
 
 #define DATAPOINTRESOLUTIONX 100
 #define DATAPOINTRESOLUTIONY 100
-#define HEATMAPCOUNT 4
-ScreenVec routerPositions[HEATMAPCOUNT] = {{290, 460}, {730, 95}, {460, 25}, {0, 280}};     //Positionen sind in Imagespace
+#define HEATMAPCOUNT 3
+ScreenVec routerPositions[HEATMAPCOUNT];
+static BYTE routerPositionsCount = 0;
 
 enum MODES{
     HEATMAPMODE,
@@ -352,8 +353,9 @@ ErrCode generateHeatmap(void* heatmapImages)noexcept{
 ErrCode toggleMode(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++mode;
-    if(mode >= ENDOFMODES) mode = 0;
     switch(mode){
+        case ENDOFMODES:
+            mode = HEATMAPMODE;
         case HEATMAPMODE:
             button->text = "Heatmap-Mode";
             break;
@@ -516,6 +518,29 @@ ErrCode setEspIP(void*)noexcept{
     return SUCCESS;
 }
 
+enum SEARCHMETHOD{
+    POINTS_AVERAGE,
+    POINTS_CLUSTER,
+    POINTS_END
+};
+
+BYTE searchMethod = POINTS_AVERAGE;
+ErrCode setSearchMethod(void* buttonPtr)noexcept{
+    Button* button = (Button*)buttonPtr;
+    ++searchMethod;
+    switch(searchMethod){
+        case POINTS_END:
+            searchMethod = POINTS_AVERAGE;
+        case POINTS_AVERAGE:
+            button->text = "Average-Method";
+            break;
+        case POINTS_CLUSTER:
+            button->text = "Cluster-Method";
+            break;
+    }
+    return SUCCESS;
+}
+
 //TODO Qualität berechnen kann bestimmt noch besser gehen
 
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
@@ -600,6 +625,20 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
     destroyDistanceMap(map);
 }
 
+ScreenVec findCluster(Image& distanceImage){
+    BYTE min = 0xFF;
+    BYTE max = 0;
+    for(DWORD i=0; i < distanceImage.height*distanceImage.width; ++i){
+        if(distanceImage.data[i] < min) min = distanceImage.data[i];
+        if(distanceImage.data[i] > max) max = distanceImage.data[i];
+    }
+    BYTE midVal = (max-min)/2;
+    for(DWORD i=0; i < distanceImage.height*distanceImage.width; ++i){
+        if(distanceImage.data[i] <= midVal) distanceImage.data[i] = 0;
+    }
+    return {0, 0};
+}
+
 ScreenVec calculateFinalPosition(Image& distanceImage){
     std::vector<ScreenVec> positions;
     BYTE maxVal = 0;
@@ -656,7 +695,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         heatmapsInterpolated[i].data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
     }
 
-    Button buttons[13];
+    Button buttons[14];
     ScreenVec buttonSize = {180, 60};
     ScreenVec buttonPos = {10, 80};
     buttons[0].pos = buttonPos;
@@ -734,6 +773,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[11].pos = buttonPos;
     buttons[11].size = buttonSize;
+    buttons[11].color = RGBA(0, 140, 40);
     buttons[11].text = "Request RSSI";
     buttons[11].event = requestScan;
     buttons[11].data = &buttons[11];
@@ -749,9 +789,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[12].pos = buttonPos;
     buttons[12].size = buttonSize;
-    buttons[12].text = "Reset Routers";
-    buttons[12].event = resetRouters;
-    buttons[12].textsize = 26;
+    buttons[12].text = "Average-Method";
+    buttons[12].event = setSearchMethod;
+    buttons[12].data = &buttons[12];
+    buttons[12].textsize = 23;
 
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     ipInput.pos = buttonPos;
@@ -759,6 +800,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     ipInput.backgroundText = "Esp32 IP";
     ipInput.textSize = 28;
     ipInput.event = setEspIP;
+
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    buttons[13].pos = buttonPos;
+    buttons[13].size = buttonSize;
+    buttons[13].text = "Reset Routers";
+    buttons[13].event = resetRouters;
+    buttons[13].textsize = 24;
 
 
     std::thread getStrengthThread(processNetworkPackets);
@@ -817,8 +865,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
                 blink++;
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
-                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-                    circles.push_back({(WORD)(((QWORD)routerPositions[i].x*(window.windowWidth-200))/floorplan.width+200), (WORD)(((QWORD)routerPositions[i].y*window.windowHeight)/floorplan.height), 8, 0, RGBA(0, 192, 255)});
+                for(BYTE i=0; i < routerPositionsCount; ++i){
+                    circles.push_back({(WORD)routerPositions[i].x, (WORD)routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
                 }
                 break;
             }
@@ -872,11 +920,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             }
         }
 
-        int selectedStrength = 90;
-        Datapoint* point = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(gx, gy));
-        if(point){
-            selectedStrength = point->rssi[showHeatmapIdx];
-        }
+        WORD imageX = (gx*heatmapsInterpolated[showHeatmapIdx].width)/(window.windowWidth-200);
+        WORD imageY = (gy*heatmapsInterpolated[showHeatmapIdx].height)/window.windowHeight;
+        BYTE selectedStrength = R(heatmapsInterpolated[showHeatmapIdx].data[imageY*heatmapsInterpolated[showHeatmapIdx].width+imageX]);
         DWORD selectedStrengthStringoffset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
         selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
 
@@ -891,6 +937,17 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 gy = (float)(y*DATAPOINTRESOLUTIONY)/(window.windowHeight);
                 delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
             }
+        }
+        if(getButton(mouse, MOUSE_RMB)){
+            int x = mouse.x-200;
+            int y = mouse.y;
+            if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
+                if(routerPositionsCount >= HEATMAPCOUNT) routerPositionsCount = 0;
+                else routerPositions[routerPositionsCount++] = {mouse.x, mouse.y};
+            }
+            setButton(mouse, MOUSE_PREV_RMB);
+        }else{
+            resetButton(mouse, MOUSE_PREV_RMB);
         }
         
         std::string fpsTime = "FPS: ";
@@ -980,6 +1037,12 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             // std::cout << wParam << std::endl;
             textInputCharEvent(routerInput, wParam);
             textInputCharEvent(ipInput, wParam);
+            if(wParam == 't'){
+                BYTE values[] = {70, 60, 60};
+                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+                    searchColor[i] = RGBA(values[i], 255-values[i], 1);
+                }
+            }
         }
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
