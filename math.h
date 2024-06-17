@@ -47,16 +47,20 @@ constexpr fvec3 cross(fvec3& a, fvec3& b)noexcept{return {a.y*b.z-a.z*b.y, a.z*b
 constexpr float deg2rad(float deg)noexcept{return deg*PI/180;}
 constexpr float rad2deg(float rad)noexcept{return rad*180/PI;}
 
-constexpr float min(float a, float b)noexcept{
+template <typename T>
+constexpr T min(T a, T b)noexcept{
 //	return a*(a<b)+b*(b<=a);
 	return a < b ? a : b;
 }
-constexpr float max(float a, float b)noexcept{
+
+template <typename T>
+constexpr T max(T a, T b)noexcept{
 //	return a*(a>b)+b*(b>=a);
 	return a > b ? a : b;
 }
 
-constexpr float clamp(float val, float minVal, float maxVal){
+template <typename T>
+constexpr T clamp(T val, T minVal, T maxVal){
 	return max(min(val, maxVal), minVal);
 }
 

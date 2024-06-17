@@ -424,6 +424,14 @@ ErrCode loadImage(const char* name, Image& image)noexcept{
 	return SUCCESS;
 }
 
+ErrCode createImage(Image& image, WORD width, WORD height)noexcept{
+	image.width = width;
+	image.height = height;
+	image.data = new(std::nothrow) DWORD[width*height];
+	if(!image.data) return BAD_ALLOC;
+	return SUCCESS;
+}
+
 void destroyImage(Image& image)noexcept{
 	delete[] image.data;
 	image.data = nullptr;
@@ -1110,6 +1118,7 @@ ErrCode renderFontChars(Window& window, Font& font, CharData* characters, DWORD 
 }
 
 //TODO offset muss noch \n beachten
+//TODO Sollte die Textgröße übergeben bekommen
 DWORD drawFontString(Window& window, Font& font, std::vector<CharData>& glyphs, const char* string, WORD x, WORD y, DWORD color = RGBA(255, 255, 255)){
 	WORD offset = 0;
 	for(size_t i=0; i < strlen(string); ++i){
@@ -1349,6 +1358,7 @@ void textInputCharEvent(TextInput& textInput, BYTE character){
 	}
 }
 
+//TODO man sollte diese Funktion in eine Zeichenfunktion und eine Mausevent Funktion trennen
 void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vector<RectangleData>& rectangles, std::vector<CharData>& glyphs)noexcept{
 	if(getTextInputFlag(textInput, ACTIVE) && getButton(mouse, MOUSE_LMB)){
 		int dx = mouse.x - textInput.pos.x;
@@ -1384,4 +1394,49 @@ void updateTextInput(Window& window, TextInput& textInput, Font& font, std::vect
 		}
 	}
 	font.pixelSize = tmpSize;
+}
+
+enum SLIDERFLAGS{
+	CAPTURED=1
+};
+template <typename T>
+struct Slider{
+	ScreenVec pos;
+	ScreenVec size;
+	WORD textSize;
+	BYTE flags = 0;
+	WORD sliderPos = 0;
+	BYTE silderRadius = 8;
+	DWORD color = RGBA(220, 220, 220);
+	T value = 0;
+	T minValue = 0;
+	T maxValue = 100;
+};
+
+template <typename T> constexpr void setSliderFlag(Slider<T>& slider, SLIDERFLAGS flag)noexcept{slider.flags |= flag;}
+template <typename T> constexpr void resetSliderFlag(Slider<T>& slider, SLIDERFLAGS flag)noexcept{slider.flags &= ~flag;}
+template <typename T> constexpr bool getSliderFlag(Slider<T>& slider, SLIDERFLAGS flag)noexcept{return (slider.flags&flag);}
+
+//TODO man sollte diese Funktion in eine Zeichenfunktion und eine Mausevent Funktion trennen
+template <typename T>
+void updateSlider(Window& window, Slider<T>& slider, Font& font, std::vector<RectangleData>& rectangles, std::vector<CircleData>& circles, std::vector<CharData>& glyphs)noexcept{
+	ScreenVec sliderPos = {(WORD)(slider.pos.x+slider.sliderPos), (WORD)(slider.pos.y+slider.size.y/2)};
+	if(getButton(mouse, MOUSE_LMB) && !getButton(mouse, MOUSE_PREV_LMB)){
+		int dx = mouse.x-sliderPos.x;
+		int dy = mouse.y-sliderPos.y;
+		WORD dist2 = dx*dx+dy*dy;
+		if(dist2 <= slider.silderRadius*slider.silderRadius) setSliderFlag(slider, CAPTURED);
+	}else if(!getButton(mouse, MOUSE_LMB)){
+		resetSliderFlag(slider, CAPTURED);
+	}
+	if(getSliderFlag(slider, CAPTURED)){
+		slider.sliderPos = clamp(mouse.x-slider.pos.x, 0, (int)slider.size.x);
+		slider.value = (slider.sliderPos*(slider.maxValue-slider.minValue))/slider.size.x+slider.minValue;
+	}
+	rectangles.push_back({slider.pos.x, slider.pos.y, slider.size.x, slider.size.y, slider.color});
+	circles.push_back({(WORD)(slider.pos.x+slider.sliderPos), (WORD)(slider.pos.y+slider.size.y/2), (float)slider.silderRadius, 0, slider.color});
+	WORD tmpPixelSize = font.pixelSize;
+	font.pixelSize = slider.textSize;
+	drawFontString(window, font, glyphs, floatToString(slider.value).c_str(), slider.pos.x+slider.size.x, slider.pos.y+(slider.size.y-slider.textSize)/2);
+	font.pixelSize = tmpPixelSize;
 }

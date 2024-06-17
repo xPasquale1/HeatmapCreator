@@ -89,6 +89,10 @@ BYTE rssiToColorComponent(BYTE rssi)noexcept{
     return ((rssi-MINDB)*255)/(MAXDB-MINDB);
 }
 
+BYTE colorComponentToRssi(BYTE color)noexcept{
+    return color*(MAXDB-MINDB)/255+MINDB;
+}
+
 //TODO Fehler melden?
 
 /// @brief Öffnet den globalen Server und hört einfach ob Pakete vom esp32 ankommen und verarbeitet diese
@@ -518,24 +522,33 @@ ErrCode setEspIP(void*)noexcept{
     return SUCCESS;
 }
 
+static bool simulateRSSI = false;
+ErrCode toggleSimulation(void* buttonPtr)noexcept{
+    Button* button = (Button*)buttonPtr;
+    simulateRSSI = !simulateRSSI;
+    if(simulateRSSI) button->text = "Simulation an";
+    else button->text = "Simulation aus";
+    return SUCCESS;
+}
+
 enum SEARCHMETHOD{
-    POINTS_AVERAGE,
-    POINTS_CLUSTER,
-    POINTS_END
+    MAXIMUM,
+    CLUSTER,
+    END
 };
 
-BYTE searchMethod = POINTS_AVERAGE;
+BYTE searchMethod = SEARCHMETHOD::MAXIMUM;
 ErrCode setSearchMethod(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++searchMethod;
     switch(searchMethod){
-        case POINTS_END:
-            searchMethod = POINTS_AVERAGE;
-        case POINTS_AVERAGE:
-            button->text = "Average-Method";
+        case SEARCHMETHOD::END:
+            searchMethod = SEARCHMETHOD::MAXIMUM;
+        case SEARCHMETHOD::MAXIMUM:
+            button->text = "Max-Methode";
             break;
-        case POINTS_CLUSTER:
-            button->text = "Cluster-Method";
+        case SEARCHMETHOD::CLUSTER:
+            button->text = "Cluster-Methode";
             break;
     }
     return SUCCESS;
@@ -571,12 +584,12 @@ float getHeatmapQuality(BYTE idx)noexcept{
 struct DistanceMap{
     BYTE* distances[HEATMAPCOUNT];
 };
-void createDistanceMap(DistanceMap& map){
+void createDistanceMap(DistanceMap& map)noexcept{
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){
         map.distances[i] = new BYTE[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
     }
 }
-void destroyDistanceMap(DistanceMap& map){
+void destroyDistanceMap(DistanceMap& map)noexcept{
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) delete[] map.distances[i];
 }
 
@@ -616,8 +629,7 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
     }
     for(DWORD i=0; i < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++i){
         if(maxDiff == 0) break;
-        float val = weightedDistances[i]*255/maxDiff;
-        val *= searchRadius;
+        int val = (weightedDistances[i]*255*searchRadius)/maxDiff;
         val = clamp(val, 0, 255);
         distanceImage.data[i] = RGBA(255-val, (255-val)/2, 0);
     }
@@ -625,18 +637,90 @@ void calculateDistanceImage(Image* heatmapsInterpolated, Image& distanceImage, B
     destroyDistanceMap(map);
 }
 
-ScreenVec findCluster(Image& distanceImage){
+void checkTile(Image& distanceImage, Image& bufferImage, std::vector<std::pair<WORD, WORD>>& cluster, WORD x, WORD y)noexcept{
+    if(y >= distanceImage.height || x < 0 || x >= distanceImage.width) return;
+    DWORD idx = y*distanceImage.width+x;
+    if(bufferImage.data[idx] == 0){
+        bufferImage.data[idx] = 1;
+        if(R(distanceImage.data[idx]) > 0){
+            cluster.push_back({x, y});
+            checkTile(distanceImage, bufferImage, cluster, x+1, y);
+            checkTile(distanceImage, bufferImage, cluster, x-1, y);
+            checkTile(distanceImage, bufferImage, cluster, x, y+1);
+        }
+    }
+    return;
+}
+
+constexpr DWORD colorPicker(BYTE idx)noexcept{
+    switch(idx%8){
+        case 0: return RGBA(255, 255, 255);
+        case 1: return RGBA(255, 0, 0);
+        case 2: return RGBA(0, 255, 0);
+        case 3: return RGBA(0, 0, 255);
+        case 4: return RGBA(128, 128, 128);
+        case 5: return RGBA(255, 255, 0);
+        case 6: return RGBA(0, 255, 255);
+        case 7: return RGBA(255, 0, 255);
+    }
+    return RGBA(0, 0, 0);
+}
+
+ScreenVec findCluster(Image& distanceImage, float threshold){
     BYTE min = 0xFF;
     BYTE max = 0;
     for(DWORD i=0; i < distanceImage.height*distanceImage.width; ++i){
-        if(distanceImage.data[i] < min) min = distanceImage.data[i];
-        if(distanceImage.data[i] > max) max = distanceImage.data[i];
+        BYTE value = R(distanceImage.data[i]);
+        if(value < min && value != 0) min = value;
+        if(value > max) max = value;
     }
-    BYTE midVal = (max-min)/2;
+    BYTE cutoff = (max-min)*threshold+min;
     for(DWORD i=0; i < distanceImage.height*distanceImage.width; ++i){
-        if(distanceImage.data[i] <= midVal) distanceImage.data[i] = 0;
+        if(R(distanceImage.data[i]) < cutoff) distanceImage.data[i] = RGBA(0, 0, 0);
     }
-    return {0, 0};
+    Image bufferImage;
+    std::vector<std::vector<std::pair<WORD, WORD>>> clusters;
+    createImage(bufferImage, distanceImage.width, distanceImage.height);
+    for(DWORD i=0; i < bufferImage.width*bufferImage.height; ++i) bufferImage.data[i] = 0;
+    for(WORD y=0; y < bufferImage.height; ++y){
+        for(WORD x=0; x < bufferImage.width; ++x){
+            if(bufferImage.data[y*bufferImage.width+x] == 0){
+                if(R(distanceImage.data[y*bufferImage.width+x]) > 0){
+                    std::vector<std::pair<WORD, WORD>> cluster;
+                    checkTile(distanceImage, bufferImage, cluster, x, y);
+                    clusters.push_back(cluster);
+                }
+            }
+        }
+    }
+    destroyImage(bufferImage);
+    DWORD maxCluster = 0;
+    WORD maxClusterIndex = 0xFFFF;
+    for(DWORD i=0; i < clusters.size(); ++i){
+        std::vector<std::pair<WORD, WORD>>& cluster = clusters[i];
+        DWORD color = colorPicker(i);
+        if(cluster.size() > maxCluster){
+            maxCluster = cluster.size();
+            maxClusterIndex = i;
+        }
+        for(DWORD j=0; j < cluster.size(); ++j){
+            std::pair<WORD, WORD>& coord = cluster[j];
+            distanceImage.data[coord.second*distanceImage.width+coord.first] = color;
+        }
+    }
+    QWORD x = 0;
+    QWORD y = 0;
+    if(maxClusterIndex != 0xFFFF){
+        std::vector<std::pair<WORD, WORD>>& cluster = clusters[maxClusterIndex];
+        for(DWORD i=0; i < cluster.size(); ++i){
+            x += cluster[i].first;
+            y += cluster[i].second;
+        }
+        x = (x*(window.windowWidth-200))/distanceImage.width/cluster.size();
+        y = (y*window.windowHeight)/distanceImage.height/cluster.size();
+    }
+
+    return {(WORD)x, (WORD)y};
 }
 
 ScreenVec calculateFinalPosition(Image& distanceImage){
@@ -689,13 +773,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
 
     Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
-    for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-        heatmapsInterpolated[i].width = DATAPOINTRESOLUTIONX;
-        heatmapsInterpolated[i].height = DATAPOINTRESOLUTIONY;
-        heatmapsInterpolated[i].data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
-    }
+    for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
-    Button buttons[14];
+    Button buttons[15];
     ScreenVec buttonSize = {180, 60};
     ScreenVec buttonPos = {10, 80};
     buttons[0].pos = buttonPos;
@@ -774,7 +854,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[11].pos = buttonPos;
     buttons[11].size = buttonSize;
     buttons[11].color = RGBA(0, 140, 40);
-    buttons[11].text = "Request RSSI";
+    buttons[11].text = "RSSI Anfrage";
     buttons[11].event = requestScan;
     buttons[11].data = &buttons[11];
     buttons[11].textsize = 26;
@@ -789,7 +869,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[12].pos = buttonPos;
     buttons[12].size = buttonSize;
-    buttons[12].text = "Average-Method";
+    buttons[12].text = "Max-Methode";
     buttons[12].event = setSearchMethod;
     buttons[12].data = &buttons[12];
     buttons[12].textsize = 23;
@@ -804,21 +884,46 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttonPos.y += buttonSize.y+buttonSize.y*0.125;
     buttons[13].pos = buttonPos;
     buttons[13].size = buttonSize;
-    buttons[13].text = "Reset Routers";
+    buttons[13].text = "Reset Router";
     buttons[13].event = resetRouters;
     buttons[13].textsize = 24;
+    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+    buttons[14].pos = buttonPos;
+    buttons[14].size = buttonSize;
+    buttons[14].text = "Simulation aus";
+    buttons[14].event = toggleSimulation;
+    buttons[14].data = &buttons[14];
+    buttons[14].textsize = 22;
 
 
     std::thread getStrengthThread(processNetworkPackets);
 
     Image distanceImage;
-    distanceImage.width = DATAPOINTRESOLUTIONX;
-    distanceImage.height = DATAPOINTRESOLUTIONY;
-    distanceImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
-    float* distances = new float[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY];
+    createImage(distanceImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
     Timer timer;
     DWORD deltaTime = 1;
+
+    Slider<BYTE> valueSimulationSliders[HEATMAPCOUNT];
+    WORD y = 20;
+    for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+        valueSimulationSliders[i].pos = {220, y};
+        valueSimulationSliders[i].size = {400, 5};
+        valueSimulationSliders[i].silderRadius = 12;
+        valueSimulationSliders[i].textSize = 24;
+        valueSimulationSliders[i].minValue = MINDB;
+        valueSimulationSliders[i].value = valueSimulationSliders[i].minValue;
+        valueSimulationSliders[i].maxValue = MAXDB;
+        y += valueSimulationSliders[i].silderRadius*2+10;
+    }
+
+    Slider<float> thresholdSilder;
+    thresholdSilder.pos = {220, y};
+    thresholdSilder.size = {400, 5};
+    thresholdSilder.silderRadius = 12;
+    thresholdSilder.textSize = 24;
+    thresholdSilder.minValue = 0;
+    thresholdSilder.maxValue = 1;
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -835,19 +940,28 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         switch(mode){
             case SEARCHMODE:{
                 calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
-                ScreenVec position = calculateFinalPosition(distanceImage);
-                circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
+                if(simulateRSSI){
+                    for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+                        updateSlider(window, valueSimulationSliders[i], font, rectangles, circles, chars);
+                    }
+                    for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+                        BYTE value = rssiToColorComponent(valueSimulationSliders[i].value);
+                        searchColor[i] = RGBA(value, 255-value, 1);
+                    }
+                }
+                updateSlider(window, thresholdSilder, font, rectangles, circles, chars);
+                ScreenVec position = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
                 drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
                 break;
             }
             case HEATMAPMODE:{
                 if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
                 else{
                     Image dataPointsImage;
-                    dataPointsImage.width = DATAPOINTRESOLUTIONX;
-                    dataPointsImage.height = DATAPOINTRESOLUTIONY;
-                    dataPointsImage.data = new DWORD[DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY]{0};
+                    createImage(dataPointsImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
+                    for(DWORD i=0; i < DATAPOINTRESOLUTIONX*DATAPOINTRESOLUTIONY; ++i) dataPointsImage.data[i] = 0;
                     HashmapIterator iterator = {};
                     iterator = iterateHashmap(datapoints, iterator);
                     while(iterator.valid){
@@ -920,9 +1034,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             }
         }
 
-        WORD imageX = (gx*heatmapsInterpolated[showHeatmapIdx].width)/(window.windowWidth-200);
-        WORD imageY = (gy*heatmapsInterpolated[showHeatmapIdx].height)/window.windowHeight;
-        BYTE selectedStrength = R(heatmapsInterpolated[showHeatmapIdx].data[imageY*heatmapsInterpolated[showHeatmapIdx].width+imageX]);
+        WORD imageX = (gx*heatmapsInterpolated[showHeatmapIdx].width)/DATAPOINTRESOLUTIONX;
+        WORD imageY = (gy*heatmapsInterpolated[showHeatmapIdx].height)/DATAPOINTRESOLUTIONY;
+        BYTE selectedStrength = colorComponentToRssi(R(heatmapsInterpolated[showHeatmapIdx].data[imageY*heatmapsInterpolated[showHeatmapIdx].width+imageX]));
         DWORD selectedStrengthStringoffset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
         selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
 
@@ -972,6 +1086,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         DWORD timediff = deltaTime > 16000 ? 16000 : deltaTime;
 
         Sleep((16000-timediff)/1000);
+
+        if(getButton(mouse, MOUSE_LMB)) setButton(mouse, MOUSE_PREV_LMB);
+        else resetButton(mouse, MOUSE_PREV_LMB);
     }
 
     destroyImage(distanceImage);
@@ -1037,12 +1154,6 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
             // std::cout << wParam << std::endl;
             textInputCharEvent(routerInput, wParam);
             textInputCharEvent(ipInput, wParam);
-            if(wParam == 't'){
-                BYTE values[] = {70, 60, 60};
-                for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-                    searchColor[i] = RGBA(values[i], 255-values[i], 1);
-                }
-            }
         }
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
