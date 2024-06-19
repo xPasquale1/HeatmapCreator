@@ -460,9 +460,20 @@ ErrCode saveHeatmaps(void*)noexcept{
 /// @param -
 /// @return ErrCode
 ErrCode loadHeatmaps(void*)noexcept{
+    OPENFILENAME ofn = {};
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    // ofn.hwndOwner = window.handle;
+    BYTE fileDir[MAX_PATH]{0};
+    ofn.lpstrFile = (LPSTR)fileDir;
+    ofn.nMaxFile = sizeof(fileDir);
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    char currentDir[MAX_PATH];
+    GetCurrentDirectoryA(MAX_PATH, currentDir);
+    ofn.lpstrInitialDir = currentDir;
+    if(GetOpenFileName(&ofn) != TRUE) return OPEN_FILE;
+
     std::fstream file;
-    std::string filename = "heatmap";
-    file.open(filename, std::ios::in);
+    file.open(ofn.lpstrFile, std::ios::in);
     if(!file.is_open()) return OPEN_FILE;
     DWORD count;
     file >> count;
