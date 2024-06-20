@@ -284,7 +284,7 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                     if(l == k || l == j || l == i) continue;
                     Datapoint& p = datapoints[l];
                     float distance2 = (centerX-p.x)*(centerX-p.x)+(centerY-p.y)*(centerY-p.y);
-                    if(distance2 < radius2){
+                    if(distance2 <= radius2){   //Das sollte eigentlich ja < sein, aber dann gab es Lücken und so hat das bisher keine Probleme gemacht
                         valid = false;
                         break;
                     }
@@ -413,29 +413,29 @@ ErrCode clearHeatmaps(void*)noexcept{
     return SUCCESS;
 }
 
-/// @brief Speichert die globalen Datenpunkte in eine Datei, die nach dem aktuellen Zeitstempel benannt wird
+/// @brief Speichert die globalen Datenpunkte in einer .hmap Datei, die nach dem aktuellen Zeitstempel benannt wird
 /// @param -
 /// @return ErrCode
 ErrCode saveHeatmaps(void*)noexcept{
+    OPENFILENAME ofn = {};
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    // ofn.hwndOwner = window.handle;
+    BYTE fileDir[MAX_PATH]{};
+    ofn.lpstrFile = (LPSTR)fileDir;
+    ofn.nMaxFile = sizeof(fileDir);
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    char currentDir[MAX_PATH]{0};
+    DWORD directoryLength = GetCurrentDirectoryA(MAX_PATH, currentDir);
+    if(directoryLength == 0) return OPEN_FILE;
+    currentDir[directoryLength] = '\\';
+    ofn.lpstrInitialDir = currentDir;
+    ofn.lpstrFilter = "Heatmap .hmap\0*.hmap\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt = "hmap";
+    if(GetSaveFileName(&ofn) != TRUE) return SUCCESS;
+
     std::fstream file;
-    SYSTEMTIME timePoint;
-    GetSystemTime(&timePoint);
-    std::string filename;
-    filename += longToString(timePoint.wDay);
-    filename += '-';
-    filename += longToString(timePoint.wMonth);
-    filename += '-';
-    filename += longToString(timePoint.wYear);
-    filename += "--";
-    filename += longToString(timePoint.wHour);
-    filename += '-';
-    filename += longToString(timePoint.wMinute);
-    filename += '-';
-    filename += longToString(timePoint.wSecond);
-    filename += '.';
-    filename += longToString(timePoint.wMilliseconds);
-    std::cout << filename << std::endl;
-    file.open(filename, std::ios::out);
+    file.open(ofn.lpstrFile, std::ios::out);
     if(!file.is_open()) return OPEN_FILE;
 
     DWORD count = sizeHashmap(datapoints);
@@ -456,21 +456,25 @@ ErrCode saveHeatmaps(void*)noexcept{
     return SUCCESS;
 }
 
-/// @brief Lädt die Datei "heatmap" und speichert die gelesenen Datenpunkte in die globalen Datenpunkte
+/// @brief Öffnet eine .hmap Datei und speichert die gelesenen Datenpunkte in die globalen Datenpunkte
 /// @param -
 /// @return ErrCode
 ErrCode loadHeatmaps(void*)noexcept{
     OPENFILENAME ofn = {};
     ofn.lStructSize = sizeof(OPENFILENAME);
     // ofn.hwndOwner = window.handle;
-    BYTE fileDir[MAX_PATH]{0};
+    BYTE fileDir[MAX_PATH]{};
     ofn.lpstrFile = (LPSTR)fileDir;
     ofn.nMaxFile = sizeof(fileDir);
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-    char currentDir[MAX_PATH];
-    GetCurrentDirectoryA(MAX_PATH, currentDir);
+    char currentDir[MAX_PATH]{0};
+    DWORD directoryLength = GetCurrentDirectoryA(MAX_PATH, currentDir);
+    if(directoryLength == 0) return OPEN_FILE;
+    currentDir[directoryLength] = '\\';
     ofn.lpstrInitialDir = currentDir;
-    if(GetOpenFileName(&ofn) != TRUE) return OPEN_FILE;
+    ofn.lpstrFilter = "Heatmap .hmap\0*.hmap\0";
+    ofn.nFilterIndex = 1;
+    if(GetOpenFileName(&ofn) != TRUE) return SUCCESS;
 
     std::fstream file;
     file.open(ofn.lpstrFile, std::ios::in);
@@ -504,7 +508,7 @@ ErrCode decSearchRadius(void*)noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    WORD scanCount = 200;
+    WORD scanCount = 10000;
     char* buffer = (char*)&scanCount;
     if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
@@ -565,9 +569,8 @@ ErrCode setSearchMethod(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
-//TODO Qualität berechnen kann bestimmt noch besser gehen
-
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
+// TODO geht bestimmt besser
 /// @param idx Der RSSI-Index der Datenpunkte
 /// @return Zahl zwischen 1 (sehr gute Qualität) und 0 (sehr schlechte Qualität)
 float getHeatmapQuality(BYTE idx)noexcept{
@@ -936,6 +939,15 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     thresholdSilder.minValue = 0;
     thresholdSilder.maxValue = 1;
 
+    Slider<WORD> displayHistoryLength;
+    displayHistoryLength.pos = {220, y};
+    displayHistoryLength.size = {800, 5};
+    displayHistoryLength.silderRadius = 12;
+    displayHistoryLength.textSize = 24;
+    displayHistoryLength.minValue = 100;
+    displayHistoryLength.maxValue = 20000;
+    displayHistoryLength.value = displayHistoryLength.minValue;
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -996,7 +1008,6 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 break;
             }
             #define DISTANCEFROMTOP window.windowHeight/2
-            #define DATAHISTORYLENGTH 150
             case DISPLAYMODE:{
                 WORD valueCounter[MAXDB-MINDB]{0};
                 for(SBYTE rssi : rssiData[showHeatmapIdx]) valueCounter[abs(rssi)-MINDB] += 1;
@@ -1026,20 +1037,22 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 DWORD dist = drawFontString(window, font, chars, longToString(-MINDB), 200, 0)+20;
                 drawFontString(window, font, chars, longToString(-MAXDB), 200, DISTANCEFROMTOP-font.pixelSize);
                 drawFontString(window, font, chars, longToString(-(MAXDB-MINDB)/2-MINDB), 200, DISTANCEFROMTOP/2-font.pixelSize/2);
-                WORD offset = (window.windowWidth-200-(dist+20))/(DATAHISTORYLENGTH-1);
-                WORD x = 200+dist+offset;
                 if(rssiData[showHeatmapIdx].size() < 1) break;
                 SBYTE rssi = rssiData[showHeatmapIdx][rssiData[showHeatmapIdx].size()-1];
                 WORD y1 = (abs(rssi)-MINDB)*(window.windowHeight-DISTANCEFROMTOP)/(MAXDB-MINDB);
-                drawFontString(window, font, chars, longToString(rssi), 200+dist, y1);
-                WORD count = DATAHISTORYLENGTH;
-                if(rssiData[showHeatmapIdx].size() < DATAHISTORYLENGTH) count = rssiData[showHeatmapIdx].size();
+                // drawFontString(window, font, chars, longToString(rssi), 200+dist, y1);
+                updateSlider(window, displayHistoryLength, font, rectangles, circles, chars);
+                WORD count = displayHistoryLength.value;
+                if(rssiData[showHeatmapIdx].size() < displayHistoryLength.value) count = rssiData[showHeatmapIdx].size();
+                WORD x = 200+dist;
+                WORD prevX = x;
                 for(WORD i=1; i < count; ++i){
                     SBYTE rssi = abs(rssiData[showHeatmapIdx][rssiData[showHeatmapIdx].size()-1-i])-MINDB;
                     WORD y2 = rssi*(window.windowHeight-DISTANCEFROMTOP)/(MAXDB-MINDB);
-                    lines.push_back({(WORD)(x-offset), y1, x, y2, 1, RGBA(0, 160, 255)});
+                    x = 200+dist+(i*(window.windowWidth-200-dist))/count;
+                    lines.push_back({prevX, y1, x, y2, 1, RGBA(0, 160, 255)});
                     y1 = y2;
-                    x += offset;
+                    prevX = x;
                 }
                 break;
             }
