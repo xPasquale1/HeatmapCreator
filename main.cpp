@@ -10,8 +10,6 @@
 
     Lineare Interpolation des Triangulationsalgorithmus zu einer logarithmischen umändern
 
-    Eine Position als finale festlegen, anstatt nur eine "Heatmap" als Schätzung zu zeigen
-
     IP an den esp32 senden können
 
     Datenpunkte RSSI Anzahl "dynamisch" machen
@@ -34,7 +32,7 @@ std::vector<RectangleData> rectangles;
 std::vector<CharData> chars;
 
 //TODO Annahme Signalstärke von -20dB bis -90dB
-#define MAXDB 90
+#define MAXDB 100
 #define MINDB 20
 
 #define DATAPOINTRESOLUTIONX 100
@@ -508,7 +506,7 @@ ErrCode decSearchRadius(void*)noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    WORD scanCount = 10000;
+    WORD scanCount = 600;
     char* buffer = (char*)&scanCount;
     if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
