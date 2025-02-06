@@ -70,7 +70,9 @@ BYTE blink = 0;
 Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
 
 Button buttons[15];
+TextInput inputs[2];
 WORD buttonCount = 0;
+WORD inputCount = 0;
 
 LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -806,19 +808,19 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[7].data = &buttons[7];
             buttons[7].textsize = 26;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            routerInput.pos = buttonPos;
-            routerInput.size = buttonSize;
-            routerInput.backgroundText = "SSID hinzu.";
-            routerInput.textSize = 28;
-            routerInput.event = sendRouterName;
-            setTextInputFlag(routerInput, TEXTCENTERED);
+            inputs[0].pos = buttonPos;
+            inputs[0].size = buttonSize;
+            inputs[0].backgroundText = "SSID hinzu.";
+            inputs[0].textSize = 28;
+            inputs[0].event = sendRouterName;
+            setTextInputFlag(inputs[0], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            ipInput.pos = buttonPos;
-            ipInput.size = buttonSize;
-            ipInput.backgroundText = "Esp32 IP";
-            ipInput.textSize = 28;
-            ipInput.event = setEspIP;
-            setTextInputFlag(ipInput, TEXTCENTERED);
+            inputs[1].pos = buttonPos;
+            inputs[1].size = buttonSize;
+            inputs[1].backgroundText = "Esp32 IP";
+            inputs[1].textSize = 28;
+            inputs[1].event = setEspIP;
+            setTextInputFlag(inputs[1], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[8].pos = buttonPos;
             buttons[8].size = buttonSize;
@@ -827,6 +829,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[8].event = resetRouters;
             buttons[8].textsize = 24;
             buttonCount = 9;
+            inputCount = 2;
             break;
         }
         case SEARCHMODE:{
@@ -901,6 +904,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[9].event = resetRouters;
             buttons[9].textsize = 26;
             buttonCount = 10;
+            inputCount = 0;
             break;
         }
         case DISPLAYMODE:
@@ -923,20 +927,6 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[2].data = &buttons[2];
             buttons[2].textsize = 26;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            routerInput.pos = buttonPos;
-            routerInput.size = buttonSize;
-            routerInput.backgroundText = "SSID hinzu.";
-            routerInput.textSize = 28;
-            routerInput.event = sendRouterName;
-            setTextInputFlag(routerInput, TEXTCENTERED);
-            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            ipInput.pos = buttonPos;
-            ipInput.size = buttonSize;
-            ipInput.backgroundText = "Esp32 IP";
-            ipInput.textSize = 28;
-            ipInput.event = setEspIP;
-            setTextInputFlag(ipInput, TEXTCENTERED);
-            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[3].pos = buttonPos;
             buttons[3].size = buttonSize;
             buttons[3].color = RGBA(120, 120, 120);
@@ -944,6 +934,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[3].event = resetRouters;
             buttons[3].textsize = 26;
             buttonCount = 4;
+            inputCount = 0;
             break;
     }
     return SUCCESS;
@@ -1033,8 +1024,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
         getMessages(window);
         updateButtons(window, font, rectangles, chars, buttons, buttonCount);
-        updateTextInput(window, routerInput, font, rectangles, chars);
-        updateTextInput(window, ipInput, font, rectangles, chars);
+        for(WORD i=0; i < inputCount; ++i) updateTextInput(window, inputs[i], font, rectangles, chars);
         clearWindow(window);
 
         switch(mode){
@@ -1256,8 +1246,7 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 		}
         case WM_CHAR:{
             // std::cout << wParam << std::endl;
-            textInputCharEvent(routerInput, wParam);
-            textInputCharEvent(ipInput, wParam);
+            for(WORD i=0; i < sizeof(inputs)/sizeof(TextInput); ++i) textInputCharEvent(inputs[i], wParam);
         }
 	}
 	return DefWindowProc(hwnd, uMsg, wParam, lParam);
