@@ -1,6 +1,5 @@
 #include "network.h"
-#include "windowgl.h"
-#include "font.h"
+#include "../OpenGL-Library/windowgl.h"
 #include <thread>
 #include <algorithm>
 
@@ -39,7 +38,7 @@ std::vector<CharData> chars;
 #define DATAPOINTRESOLUTIONY 100
 #define HEATMAPCOUNT 3
 ScreenVec routerPositions[HEATMAPCOUNT];
-static BYTE routerPositionsCount = 0;
+BYTE routerPositionsCount = 0;
 
 enum MODES{
     HEATMAPMODE,
@@ -54,19 +53,24 @@ struct Datapoint{
     BYTE rssi[HEATMAPCOUNT];    //TODO BYTE* und zur Laufzeit allokieren und den max. Wert in rssiCount merken
     BYTE rssiCount = 0;
 };
-static Hashmap datapoints;                  //Speichert die Datenpunkte, welche Angeziegt, für Berechnungen,... verwendet werden
+Hashmap datapoints;      //Speichert die Datenpunkte, welche Angeziegt, für Berechnungen,... verwendet werden
 
 #define coordinatesToKey(x, y)((x<<16)|y)
 
 std::vector<SBYTE> singleRssiData;
 std::vector<SBYTE> rssiData[HEATMAPCOUNT];
 
-static BYTE mode = 0;
-static DWORD searchColor[HEATMAPCOUNT]{0};  //TODO auch zur Laufzeit allokieren und durch das Applikationsinterface veränderbar machen
-static bool running = true;
-static WORD gx = 0;
-static WORD gy = 0;
-static BYTE blink = 0;
+BYTE mode = 0;
+DWORD searchColor[HEATMAPCOUNT]{0};  //TODO auch zur Laufzeit allokieren und durch das Applikationsinterface veränderbar machen
+bool running = true;
+WORD gx = 0;
+WORD gy = 0;
+BYTE blink = 0;
+
+Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
+
+Button buttons[15];
+WORD buttonCount = 0;
 
 LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -348,25 +352,6 @@ ErrCode generateHeatmap(void* heatmapImages)noexcept{
         for(DWORD i=0; i < count; ++i) points[i] = *(Datapoint*)pointsPointer[i];
         interpolateTriangulation(images, i, points, count);
         delete[] points;
-    }
-    return SUCCESS;
-}
-
-ErrCode toggleMode(void* buttonPtr)noexcept{
-    Button* button = (Button*)buttonPtr;
-    ++mode;
-    switch(mode){
-        case ENDOFMODES:
-            mode = HEATMAPMODE;
-        case HEATMAPMODE:
-            button->text = "Heatmap-Mode";
-            break;
-        case SEARCHMODE:
-            button->text = "Search-Mode";
-            break;
-        case DISPLAYMODE:
-            button->text = "Display-Mode";
-            break;
     }
     return SUCCESS;
 }
@@ -758,6 +743,212 @@ ScreenVec calculateFinalPosition(Image& distanceImage){
     return {(WORD)((x*(window.windowWidth-200))/distanceImage.width/positions.size()), (WORD)((y*window.windowHeight)/distanceImage.height/positions.size())};
 }
 
+ErrCode changeMode(void* buttonPtr)noexcept{
+    Button* button = (Button*)buttonPtr;
+    ++mode;
+    switch(mode){
+        case ENDOFMODES:
+            mode = HEATMAPMODE;
+        case HEATMAPMODE:{
+            button->text = "Heatmap-Mode";
+            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
+            buttons[1].pos = buttonPos;
+            buttons[1].size = buttonSize;
+            buttons[1].text = "Datenpunkte";
+            buttons[1].color = RGBA(120, 120, 120);
+            buttons[1].event = toggleHeatmap;
+            buttons[1].data = &buttons[1];
+            buttons[1].textsize = 30;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[2].pos = buttonPos;
+            buttons[2].size = buttonSize;
+            buttons[2].color = RGBA(120, 120, 120);
+            buttons[2].text = "Heatmap gen.";
+            buttons[2].event = generateHeatmap;
+            buttons[2].data = heatmapsInterpolated;
+            buttons[2].textsize = 26;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[3].pos = buttonPos;
+            buttons[3].size = buttonSize;
+            buttons[3].color = RGBA(120, 120, 120);
+            buttons[3].text = "Loeschen";
+            buttons[3].event = clearHeatmaps;
+            buttons[3].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[4].pos = buttonPos;
+            buttons[4].size = buttonSize;
+            buttons[4].color = RGBA(120, 120, 120);
+            buttons[4].text = "Speichern";
+            buttons[4].event = saveHeatmaps;
+            buttons[4].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[5].pos = buttonPos;
+            buttons[5].size = buttonSize;
+            buttons[5].color = RGBA(120, 120, 120);
+            buttons[5].text = "Laden";
+            buttons[5].event = loadHeatmaps;
+            buttons[5].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[6].pos = buttonPos;
+            buttons[6].size = buttonSize;
+            buttons[6].color = RGBA(120, 120, 120);
+            buttons[6].text = "Heatmap 0";
+            buttons[6].event = iterateHeatmaps;
+            buttons[6].data = &buttons[6];
+            buttons[6].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[7].pos = buttonPos;
+            buttons[7].size = buttonSize;
+            buttons[7].color = RGBA(0, 140, 40);
+            buttons[7].text = "RSSI Anfrage";
+            buttons[7].event = requestScan;
+            buttons[7].data = &buttons[7];
+            buttons[7].textsize = 26;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            routerInput.pos = buttonPos;
+            routerInput.size = buttonSize;
+            routerInput.backgroundText = "SSID hinzu.";
+            routerInput.textSize = 28;
+            routerInput.event = sendRouterName;
+            setTextInputFlag(routerInput, TEXTCENTERED);
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            ipInput.pos = buttonPos;
+            ipInput.size = buttonSize;
+            ipInput.backgroundText = "Esp32 IP";
+            ipInput.textSize = 28;
+            ipInput.event = setEspIP;
+            setTextInputFlag(ipInput, TEXTCENTERED);
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[8].pos = buttonPos;
+            buttons[8].size = buttonSize;
+            buttons[8].color = RGBA(120, 120, 120);
+            buttons[8].text = "Reset Router";
+            buttons[8].event = resetRouters;
+            buttons[8].textsize = 24;
+            buttonCount = 9;
+            break;
+        }
+        case SEARCHMODE:{
+            button->text = "Search-Mode";
+            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
+            buttons[1].pos = buttonPos;
+            buttons[1].size = buttonSize;
+            buttons[1].text = "Heatmap 0";
+            buttons[1].color = RGBA(120, 120, 120);
+            buttons[1].event = iterateHeatmaps;
+            buttons[1].data = &buttons[1];
+            buttons[1].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[2].pos = buttonPos;
+            buttons[2].size = {buttonSize.y, buttonSize.y};
+            buttons[2].text = "+";
+            buttons[2].color = RGBA(120, 120, 120);
+            buttons[2].event = incSearchRadius;
+            buttons[2].textsize = 24;
+            buttons[3].pos = {(WORD)(buttonPos.x+buttonSize.y+buttonSize.y*0.125), buttonPos.y};
+            buttons[3].size = {buttonSize.y, buttonSize.y};
+            buttons[3].color = RGBA(120, 120, 120);
+            buttons[3].text = "-";
+            buttons[3].event = decSearchRadius;
+            buttons[3].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[4].pos = buttonPos;
+            buttons[4].size = buttonSize;
+            buttons[4].text = "Einzeln";
+            buttons[4].color = RGBA(120, 120, 120);
+            buttons[4].event = toggleDifferenceMode;
+            buttons[4].data = &buttons[4];
+            buttons[4].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[5].pos = buttonPos;
+            buttons[5].size = buttonSize;
+            buttons[5].color = RGBA(120, 120, 120);
+            buttons[5].text = "Gewichtung an";
+            buttons[5].event = toggleWeightingQuality;
+            buttons[5].data = &buttons[5];
+            buttons[5].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[6].pos = buttonPos;
+            buttons[6].size = buttonSize;
+            buttons[6].color = RGBA(0, 140, 40);
+            buttons[6].text = "RSSI Anfrage";
+            buttons[6].event = requestScan;
+            buttons[6].data = &buttons[6];
+            buttons[6].textsize = 26;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[7].pos = buttonPos;
+            buttons[7].size = buttonSize;
+            buttons[7].color = RGBA(120, 120, 120);
+            buttons[7].text = "Max-Methode";
+            buttons[7].event = setSearchMethod;
+            buttons[7].data = &buttons[7];
+            buttons[7].textsize = 23;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[8].pos = buttonPos;
+            buttons[8].size = buttonSize;
+            buttons[8].color = RGBA(120, 120, 120);
+            buttons[8].text = "Simulation aus";
+            buttons[8].event = toggleSimulation;
+            buttons[8].data = &buttons[8];
+            buttons[8].textsize = 22;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[9].pos = buttonPos;
+            buttons[9].size = buttonSize;
+            buttons[9].color = RGBA(120, 120, 120);
+            buttons[9].text = "Reset Router";
+            buttons[9].event = resetRouters;
+            buttons[9].textsize = 26;
+            buttonCount = 10;
+            break;
+        }
+        case DISPLAYMODE:
+            button->text = "Display-Mode";
+            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
+            buttons[1].pos = buttonPos;
+            buttons[1].size = buttonSize;
+            buttons[1].text = "Heatmap 0";
+            buttons[1].color = RGBA(120, 120, 120);
+            buttons[1].event = iterateHeatmaps;
+            buttons[1].data = &buttons[1];
+            buttons[1].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[2].pos = buttonPos;
+            buttons[2].size = buttonSize;
+            buttons[2].color = RGBA(0, 140, 40);
+            buttons[2].text = "RSSI Anfrage";
+            buttons[2].event = requestScan;
+            buttons[2].data = &buttons[2];
+            buttons[2].textsize = 26;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            routerInput.pos = buttonPos;
+            routerInput.size = buttonSize;
+            routerInput.backgroundText = "SSID hinzu.";
+            routerInput.textSize = 28;
+            routerInput.event = sendRouterName;
+            setTextInputFlag(routerInput, TEXTCENTERED);
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            ipInput.pos = buttonPos;
+            ipInput.size = buttonSize;
+            ipInput.backgroundText = "Esp32 IP";
+            ipInput.textSize = 28;
+            ipInput.event = setEspIP;
+            setTextInputFlag(ipInput, TEXTCENTERED);
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[3].pos = buttonPos;
+            buttons[3].size = buttonSize;
+            buttons[3].color = RGBA(120, 120, 120);
+            buttons[3].text = "Reset Router";
+            buttons[3].event = resetRouters;
+            buttons[3].textsize = 26;
+            buttonCount = 4;
+            break;
+    }
+    return SUCCESS;
+}
+
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){    
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0){
@@ -772,7 +963,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
     int winWidth = workArea.right-workArea.left;
     if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, winWidth-(winHeight+210), 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
-    if(ErrCheck(initGL(), "Init OpenGL") != SUCCESS) return -1;
+    if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
@@ -784,131 +975,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         floorplan.data[i] = RGBA(R(color)*4, G(color)*4, B(color)*4, 65);   //Macht das Bild heller und durchsichtig
     }
 
-    Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
-    Button buttons[15];
+    std::thread getStrengthThread(processNetworkPackets);
+
     ScreenVec buttonSize = {180, 60};
-    ScreenVec buttonPos = {10, 80};
+    ScreenVec buttonPos = {10, 70};
     buttons[0].pos = buttonPos;
     buttons[0].size = buttonSize;
-    buttons[0].text = "Datenpunkte";
-    buttons[0].event = toggleHeatmap;
+    buttons[0].event = changeMode;
     buttons[0].data = &buttons[0];
-    buttons[0].textsize = 30;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[1].pos = buttonPos;
-    buttons[1].size = buttonSize;
-    buttons[1].text = "Heatmap gen.";
-    buttons[1].event = generateHeatmap;
-    buttons[1].data = heatmapsInterpolated;
-    buttons[1].textsize = 26;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[2].pos = buttonPos;
-    buttons[2].size = buttonSize;
-    buttons[2].text = "Loeschen";
-    buttons[2].event = clearHeatmaps;
-    buttons[2].textsize = 32;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[3].pos = buttonPos;
-    buttons[3].size = buttonSize;
-    buttons[3].text = "Speichern";
-    buttons[3].event = saveHeatmaps;
-    buttons[3].textsize = 32;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[4].pos = buttonPos;
-    buttons[4].size = buttonSize;
-    buttons[4].text = "Laden";
-    buttons[4].event = loadHeatmaps;
-    buttons[4].textsize = 32;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[5].pos = buttonPos;
-    buttons[5].size = buttonSize;
-    buttons[5].text = "Heatmap 0";
-    buttons[5].event = iterateHeatmaps;
-    buttons[5].data = &buttons[5];
-    buttons[5].textsize = 32;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[6].pos = buttonPos;
-    buttons[6].size = buttonSize;
-    buttons[6].text = "Heatmap-Mode";
-    buttons[6].event = toggleMode;
-    buttons[6].data = &buttons[6];
-    buttons[6].textsize = 24;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[7].pos = buttonPos;
-    buttons[7].size = {buttonSize.y, buttonSize.y};
-    buttons[7].text = "+";
-    buttons[7].event = incSearchRadius;
-    buttons[7].textsize = 24;
-    buttons[8].pos = {(WORD)(buttonPos.x+buttonSize.y+buttonSize.y*0.125), buttonPos.y};
-    buttons[8].size = {buttonSize.y, buttonSize.y};
-    buttons[8].text = "-";
-    buttons[8].event = decSearchRadius;
-    buttons[8].textsize = 24;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[9].pos = buttonPos;
-    buttons[9].size = buttonSize;
-    buttons[9].text = "Einzeln";
-    buttons[9].event = toggleDifferenceMode;
-    buttons[9].data = &buttons[9];
-    buttons[9].textsize = 32;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[10].pos = buttonPos;
-    buttons[10].size = buttonSize;
-    buttons[10].text = "Gewichtung an";
-    buttons[10].event = toggleWeightingQuality;
-    buttons[10].data = &buttons[10];
-    buttons[10].textsize = 24;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[11].pos = buttonPos;
-    buttons[11].size = buttonSize;
-    buttons[11].color = RGBA(0, 140, 40);
-    buttons[11].text = "RSSI Anfrage";
-    buttons[11].event = requestScan;
-    buttons[11].data = &buttons[11];
-    buttons[11].textsize = 26;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    routerInput.pos = buttonPos;
-    routerInput.size = buttonSize;
-    routerInput.backgroundText = "SSID hinzu.";
-    routerInput.textSize = 28;
-    routerInput.event = sendRouterName;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[12].pos = buttonPos;
-    buttons[12].size = buttonSize;
-    buttons[12].text = "Max-Methode";
-    buttons[12].event = setSearchMethod;
-    buttons[12].data = &buttons[12];
-    buttons[12].textsize = 23;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    ipInput.pos = buttonPos;
-    ipInput.size = buttonSize;
-    ipInput.backgroundText = "Esp32 IP";
-    ipInput.textSize = 28;
-    ipInput.event = setEspIP;
-
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[13].pos = buttonPos;
-    buttons[13].size = buttonSize;
-    buttons[13].text = "Reset Router";
-    buttons[13].event = resetRouters;
-    buttons[13].textsize = 24;
-    buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-    buttons[14].pos = buttonPos;
-    buttons[14].size = buttonSize;
-    buttons[14].text = "Simulation aus";
-    buttons[14].event = toggleSimulation;
-    buttons[14].data = &buttons[14];
-    buttons[14].textsize = 22;
-
-
-    std::thread getStrengthThread(processNetworkPackets);
+    buttons[0].textsize = 26;
+    mode = -1;
+    changeMode(&buttons[0]);
 
     Image distanceImage;
     createImage(distanceImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
@@ -953,7 +1032,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         resetTimer(timer);
 
         getMessages(window);
-        updateButtons(window, font, rectangles, chars, buttons, sizeof(buttons)/sizeof(Button));
+        updateButtons(window, font, rectangles, chars, buttons, buttonCount);
         updateTextInput(window, routerInput, font, rectangles, chars);
         updateTextInput(window, ipInput, font, rectangles, chars);
         clearWindow(window);
@@ -1062,8 +1141,10 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         DWORD selectedStrengthStringoffset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
         selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
 
-        DWORD offset = drawFontString(window, font, chars, longToString(searchRadius), (buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.125), buttons[7].pos.y);
-        buttons[8].pos = {(WORD)(buttons[7].pos.x+buttons[7].size.x+buttonSize.y*0.25+offset), buttons[7].pos.y};
+        if(mode == SEARCHMODE){
+            DWORD offset = drawFontString(window, font, chars, longToString(searchRadius), (buttons[2].pos.x+buttons[2].size.x+buttons[2].size.y*0.125), buttons[2].pos.y);
+            buttons[3].pos = {(WORD)(buttons[2].pos.x+buttons[2].size.x+buttons[2].size.y*0.25+offset), buttons[2].pos.y};
+        }
 
         if(getButton(mouse, MOUSE_LMB)){
             int x = mouse.x-200;
@@ -1168,6 +1249,7 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 			break;
 		}
 		case WM_MOUSEMOVE:{
+            SetCursor(LoadCursor(NULL, IDC_ARROW));     //TODO Keine Ahnung ob das Performance mäßig ein Problem sein könnte
 			mouse.x = GET_X_LPARAM(lParam);
 			mouse.y = GET_Y_LPARAM(lParam);
 			break;

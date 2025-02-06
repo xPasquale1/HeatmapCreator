@@ -1,7 +1,7 @@
 #pragma once
 
 #include <winsock2.h>
-#include "util.h"
+#include "../OpenGL-Library/util.h"
 
 //WICHTIG, bevor man irgendetwas hier erstellen/nutzen kann, MUSS WSAStartup() einmal aufgerufen werden!
 //Und am Ende natürlich dann auch wieder WSACleanup()

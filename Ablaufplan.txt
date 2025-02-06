@@ -1,0 +1,18 @@
+Tests:
+	Performance mit unterschiedlichen Routeranzahlen
+	Testen ob Gegenstände relativ zueinander gefunden werden können
+	Andere Methoden testen zum:
+		- Aufnehmen der Messpunkte
+		- Interpolation der Heatmaps
+		- "Keine" Heatmaps sondern nur die Tatsächlichen Messpunkte als Position
+		- Andere Methode um den Tatsächlicne Punkt zu bestimmen, avg, max,...
+	Andere Methode um Messdaten zu speichern
+	Esp mit Antenne
+	Zeitmessungen (braucht wahrscheinlich WLAN Zeitstempel)
+
+Applikation:
+	Evtl. Web? React? (Websockets müssen dann halt verwendet werden, die kein UDP haben)
+	Falls Web, dann Emscripten nutzen? Geht das mit React?
+	Falls kein Web, dann Betriebsystem unabhängig, Framework?
+	Interface für den Esp32 deutlich simpler machen
+	Interface zum Esp32 deutlich besser machen
