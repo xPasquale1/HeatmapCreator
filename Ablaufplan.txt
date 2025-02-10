@@ -16,3 +16,28 @@ Applikation:
 	Falls kein Web, dann Betriebsystem unabhängig, Framework?
 	Interface für den Esp32 deutlich simpler machen
 	Interface zum Esp32 deutlich besser machen
+
+
+Histogramme für Reflektion/direkte line of sight
+
+Grundmessung fertig
+Zeitplan:
+	Ziel: Bis Ende Februar
+		Basis finden mit Messpunktanzahl und Methode der Berechnungen
+		Variation der Messpunktzahl und Routeranzahl -> Bestes Ergebnis für weitere Tests
+		Tests mit langer Aufnahme
+		Tests mit leerem Raum -> Zimmer daheim, Office bei der Exxeta, Hochschule Raum
+		Tests mit Möbeln
+		Tests mit großem Raum
+		Tests im Aussenbereich
+	Anfang März:
+		-> Optimales Setup von oben nutzen
+		Entscheidung weiter mit Heatmaps oder Zeitmessung
+		Entscheidung ob das mit Web umgesetzt werden soll
+	Mitte März:
+		Bachelorarbeit Struktur planen
+	Letzte Märzwoche:
+		Schreiben anfangen
+	Letzte Aprilwoche:
+		Fertig sein, Korrektur lesen, Rückmeldung Prof
+	

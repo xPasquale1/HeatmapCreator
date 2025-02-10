@@ -22,9 +22,6 @@ Window window;
 Font font;
 UDPServer mainServer;
 
-TextInput routerInput;
-TextInput ipInput;
-
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
 std::vector<RectangleData> rectangles;
@@ -502,11 +499,12 @@ ErrCode requestScan(void*)noexcept{
     return SUCCESS;
 }
 
-ErrCode sendRouterName(void*)noexcept{
-    if(routerInput.text.size() < 1) return SUCCESS;
-    char buffer[routerInput.text.size()];
-    if(sendMessagecodeUDPServer(mainServer, ADD_ROUTER, routerInput.text.c_str(), routerInput.text.size()) < 1) return GENERIC_ERROR;
-    routerInput.text.clear();
+ErrCode sendRouterName(void* input)noexcept{
+    TextInput& textInput = *(TextInput*)input;
+    if(textInput.text.size() < 1) return SUCCESS;
+    char buffer[textInput.text.size()];
+    if(sendMessagecodeUDPServer(mainServer, ADD_ROUTER, textInput.text.c_str(), textInput.text.size()) < 1) return GENERIC_ERROR;
+    textInput.text.clear();
     return SUCCESS;
 }
 
@@ -515,10 +513,11 @@ ErrCode resetRouters(void*)noexcept{
     return SUCCESS;
 }
 
-ErrCode setEspIP(void*)noexcept{
-    if(ipInput.text.size() < 1) return SUCCESS;
-    changeUDPServerDestination(mainServer, ipInput.text.c_str(), 4984);
-    ipInput.text.clear();
+ErrCode setEspIP(void* input)noexcept{
+    TextInput& textInput = *(TextInput*)input;
+    if(textInput.text.size() < 1) return SUCCESS;
+    changeUDPServerDestination(mainServer, textInput.text.c_str(), 4984);
+    textInput.text.clear();
     return SUCCESS;
 }
 
@@ -813,6 +812,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[0].backgroundText = "SSID hinzu.";
             inputs[0].textSize = 28;
             inputs[0].event = sendRouterName;
+            inputs[0].data = &inputs[0];
             setTextInputFlag(inputs[0], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             inputs[1].pos = buttonPos;
@@ -820,6 +820,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[1].backgroundText = "Esp32 IP";
             inputs[1].textSize = 28;
             inputs[1].event = setEspIP;
+            inputs[1].data = &inputs[1];
             setTextInputFlag(inputs[1], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[8].pos = buttonPos;
@@ -1016,7 +1017,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     displayHistoryLength.maxValue = 20000;
     displayHistoryLength.value = displayHistoryLength.minValue;
 
-    glEnable(GL_BLEND);
+    glEnable(GL_BLEND);     //TODO Könnte man nur dann anschalten wenn man es nutzt und nicht immer (Grade für Font rendering wird es langsamer sein)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     while(running){
