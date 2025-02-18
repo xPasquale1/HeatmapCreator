@@ -39,6 +39,8 @@ ErrCode createUDPServer(UDPServer& server, u_short port, DWORD timeoutMillis = 1
 
     server.receiver.sin_family = AF_INET;
 
+    int broadcastEnable = 1;
+    if(setsockopt(server.socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
     if(setsockopt(server.socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
 
     if(bind(server.socket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht binden");
@@ -89,6 +91,7 @@ int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, const char* b
         case RESET_ROUTERS:
             sendBufferLength = 1;
             break;
+        case SETSENDIP:
         case ADD_ROUTER:
             for(int i=0; i < bufferSize; ++i){
                 sendBuffer[i+1] = buffer[i];

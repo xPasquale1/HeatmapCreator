@@ -2,14 +2,12 @@
 #include "../OpenGL-Library/windowgl.h"
 #include <thread>
 #include <algorithm>
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 /*
     TODOS:
-    Webassembly, also das man alles im browser nutzen kann
-
     Lineare Interpolation des Triangulationsalgorithmus zu einer logarithmischen umändern
-
-    IP an den esp32 senden können
 
     Datenpunkte RSSI Anzahl "dynamisch" machen
 
@@ -27,7 +25,7 @@ std::vector<CircleData> circles;
 std::vector<RectangleData> rectangles;
 std::vector<CharData> chars;
 
-//TODO Annahme Signalstärke von -20dB bis -90dB
+//TODO Annahme Signalstärke von -20dB bis -100dB
 #define MAXDB 100
 #define MINDB 20
 
@@ -67,7 +65,7 @@ BYTE blink = 0;
 Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
 
 Button buttons[15];
-TextInput inputs[2];
+TextInput inputs[3];
 WORD buttonCount = 0;
 WORD inputCount = 0;
 
@@ -438,6 +436,10 @@ ErrCode saveHeatmaps(void*)noexcept{
     return SUCCESS;
 }
 
+// ErrCode screenshot(void*)noexcept{
+//     glReadPixels(0, 0, window.windowWidth, window.windowHeight, GL_RGB, GL_UNSIGNED_BYTE, screenshotData);
+// }
+
 /// @brief Öffnet eine .hmap Datei und speichert die gelesenen Datenpunkte in die globalen Datenpunkte
 /// @param -
 /// @return ErrCode
@@ -517,6 +519,19 @@ ErrCode setEspIP(void* input)noexcept{
     TextInput& textInput = *(TextInput*)input;
     if(textInput.text.size() < 1) return SUCCESS;
     changeUDPServerDestination(mainServer, textInput.text.c_str(), 4984);
+    textInput.text.clear();
+    return SUCCESS;
+}
+
+ErrCode setSendIP(void* input)noexcept{
+    TextInput& textInput = *(TextInput*)input;
+    if(textInput.text.size() < 1) return SUCCESS;
+    char data[6];
+    DWORD ip = htonl(inet_addr(textInput.text.c_str()));
+    WORD port = htons(4984);                                    //TODO Sollte man auch angeben können
+    memcpy(data, &ip, 4);
+    memcpy(data+4, &port, 2);
+    if(sendMessagecodeUDPServer(mainServer, SETSENDIP, data, sizeof(data)) < 1) return GENERIC_ERROR;
     textInput.text.clear();
     return SUCCESS;
 }
@@ -744,6 +759,57 @@ ScreenVec calculateFinalPosition(Image& distanceImage){
     return {(WORD)((x*(window.windowWidth-200))/distanceImage.width/positions.size()), (WORD)((y*window.windowHeight)/distanceImage.height/positions.size())};
 }
 
+ErrCode loadPng(const char* filename, Image& image)noexcept{
+    int width, height, channels;
+    unsigned char* img = stbi_load(filename, &width, &height, &channels, STBI_rgb_alpha);
+    if(!img) return FILE_NOT_FOUND;
+    image.width = width;
+    image.height = height;
+    std::cout << channels << std::endl;
+    image.data = alloc<DWORD>(width*height);
+    for(DWORD i=0; i < width*height*4; i+=4){
+        DWORD color = RGBA(img[i], img[i+1], img[i+2], img[i+3]);
+        image.data[i/4] = color;
+    }
+    stbi_image_free(img);
+    return SUCCESS;
+}
+
+ErrCode printList(void* buttonPtr)noexcept{
+    OPENFILENAME ofn = {};
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    // ofn.hwndOwner = window.handle;
+    BYTE fileDir[MAX_PATH]{};
+    ofn.lpstrFile = (LPSTR)fileDir;
+    ofn.nMaxFile = sizeof(fileDir);
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    char currentDir[MAX_PATH]{0};
+    DWORD directoryLength = GetCurrentDirectoryA(MAX_PATH, currentDir);
+    if(directoryLength == 0) return OPEN_FILE;
+    currentDir[directoryLength] = '\\';
+    ofn.lpstrInitialDir = currentDir;
+    ofn.lpstrFilter = "Heatmapdata .data\0*.data\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrDefExt = "data";
+    if(GetSaveFileName(&ofn) != TRUE) return SUCCESS;
+    std::fstream file;
+    file.open(ofn.lpstrFile, std::ios::out);
+    if(!file.is_open()) return OPEN_FILE;
+    file << "{\n";
+    for(BYTE i=0; i < HEATMAPCOUNT; ++i){
+        file << "\t\"Heatmap" << (int)i << "\" :[";
+        for(size_t j=0; j < rssiData[i].size(); ++j){
+            file << (int)rssiData[i][j];
+            if(j < rssiData[i].size()-1) file << ", ";
+        }
+        file << "]";
+        if(i < HEATMAPCOUNT-1) file << ",\n";
+    }
+    file << "\n}\n";
+    file.close();
+    return SUCCESS;
+}
+
 ErrCode changeMode(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++mode;
@@ -821,6 +887,13 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[1].textSize = 28;
             inputs[1].event = setEspIP;
             inputs[1].data = &inputs[1];
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[2].pos = buttonPos;
+            inputs[2].size = buttonSize;
+            inputs[2].backgroundText = "Ziel IP des Esp32";
+            inputs[2].textSize = 24;
+            inputs[2].event = setSendIP;
+            inputs[2].data = &inputs[2];
             setTextInputFlag(inputs[1], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[8].pos = buttonPos;
@@ -830,7 +903,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[8].event = resetRouters;
             buttons[8].textsize = 24;
             buttonCount = 9;
-            inputCount = 2;
+            inputCount = 3;
             break;
         }
         case SEARCHMODE:{
@@ -934,7 +1007,21 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[3].text = "Reset Router";
             buttons[3].event = resetRouters;
             buttons[3].textsize = 26;
-            buttonCount = 4;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[4].pos = buttonPos;
+            buttons[4].size = buttonSize;
+            buttons[4].color = RGBA(120, 120, 120);
+            buttons[4].text = "Loeschen";
+            buttons[4].event = clearHeatmaps;
+            buttons[4].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[5].pos = buttonPos;
+            buttons[5].size = buttonSize;
+            buttons[5].color = RGBA(120, 120, 120);
+            buttons[5].text = "Daten speichern";
+            buttons[5].event = printList;
+            buttons[5].textsize = 24;
+            buttonCount = 6;
             inputCount = 0;
             break;
     }
@@ -949,7 +1036,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
     if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "192.168.137.34", 4984);
+    changeUDPServerDestination(mainServer, "255.255.255.255", 4984);
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
@@ -961,10 +1048,14 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     Image floorplan;
     if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
+    // if(ErrCheck(loadPng("images/layoutOffice.png", floorplan), "Layout laden") != SUCCESS) return -1;
     std::cout << floorplan.width << ", " << floorplan.height << std::endl;
     for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
         DWORD color =  floorplan.data[i];
-        floorplan.data[i] = RGBA(R(color)*4, G(color)*4, B(color)*4, 65);   //Macht das Bild heller und durchsichtig
+        if(A(color) > 0)
+            floorplan.data[i] = RGBA(255, 255, 255, 65);
+        else
+            floorplan.data[i] = RGBA(0, 0, 0, 0);
     }
 
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
@@ -1247,6 +1338,16 @@ LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM 
 		}
         case WM_CHAR:{
             // std::cout << wParam << std::endl;
+            if(wParam == 22){
+                if(!OpenClipboard(nullptr)) break;
+                HANDLE hData = GetClipboardData(CF_TEXT);
+                if(!hData) break;
+                char* text = (char*)GlobalLock(hData);
+                for(WORD i=0; i < sizeof(inputs)/sizeof(TextInput); ++i) textInputCharEvent(inputs[i], text);
+                GlobalUnlock(hData);
+                CloseClipboard();
+                break;
+            }
             for(WORD i=0; i < sizeof(inputs)/sizeof(TextInput); ++i) textInputCharEvent(inputs[i], wParam);
         }
 	}

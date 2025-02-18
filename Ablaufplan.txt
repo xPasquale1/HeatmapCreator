@@ -24,7 +24,6 @@ Grundmessung fertig
 Zeitplan:
 	Ziel: Bis Ende Februar
 		Basis finden mit Messpunktanzahl und Methode der Berechnungen
-		Variation der Messpunktzahl und Routeranzahl -> Bestes Ergebnis für weitere Tests
 		Tests mit langer Aufnahme
 		Tests mit leerem Raum -> Zimmer daheim, Office bei der Exxeta, Hochschule Raum
 		Tests mit Möbeln
@@ -34,10 +33,22 @@ Zeitplan:
 		-> Optimales Setup von oben nutzen
 		Entscheidung weiter mit Heatmaps oder Zeitmessung
 		Entscheidung ob das mit Web umgesetzt werden soll
+		Display vom ESP ansteuerbar machen, um Infos/Status/Fehler zu melden
 	Mitte März:
 		Bachelorarbeit Struktur planen
 	Letzte Märzwoche:
 		Schreiben anfangen
 	Letzte Aprilwoche:
 		Fertig sein, Korrektur lesen, Rückmeldung Prof
+
+Basis:
+	1 Messpunkt -> Wie viele db Messungen sind nötig um eine stabiles Ergebnis zu bekommen		X
+		-> 50 - 100 reichen voll aus
+	Welche Methode ist am besten für eine stabile/konsistente db Schätzung am Messpunkt			X
+		-> Avg oder Max liefern meist das gleiche Ergebnis, da bei guten Signalstärken oft ein Peak entsteht mit minimaler Streuung
+	Histogramme ob Reflexionen oder Penetrationen vom Esp32 aufgenommen werden					X
+		-> Nein, egal ob eine Wand oder ein Metallobjekt hinter dem Esp32 ist, es macht keinen Unterschied
+	-> Optimale Anzahl für alle weiteren Tests
+	1-4 Router testen
+	9-100 Messpunkte nutzen (10 Schritte)
 	
