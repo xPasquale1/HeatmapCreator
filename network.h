@@ -19,8 +19,10 @@ enum MESSAGECODES{
     RESET_ROUTERS,
     SETSENDIP,
     ACK,
-    SEND_SINGLE,
-    REQUEST_SCANS
+    REQUEST_AVG,
+    REQUEST_SCANS,
+    SCAN_INFO,
+    SEND_STATUS
 };
 
 /// @brief Erstellt einen UDP Server auf dem Port port mit einem Timeout von timeoutMillis in Millisekunden für recv-Aufrufe und speichert alle Daten im server struct
@@ -88,6 +90,7 @@ int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, const char* b
     int sendBufferLength = 0;
     sendBuffer[0] = code;
     switch(code){
+        case REQUEST_AVG:
         case RESET_ROUTERS:
             sendBufferLength = 1;
             break;

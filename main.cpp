@@ -33,7 +33,9 @@ std::vector<CharData> chars;
 #define DATAPOINTRESOLUTIONY 100
 #define HEATMAPCOUNT 3
 ScreenVec routerPositions[HEATMAPCOUNT];
+ScreenVec realEspPosition;
 BYTE routerPositionsCount = 0;
+bool realEspPositionSet = false;
 
 enum MODES{
     HEATMAPMODE,
@@ -492,9 +494,13 @@ ErrCode decSearchRadius(void*)noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    WORD scanCount = 600;
-    char* buffer = (char*)&scanCount;
-    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
+    // WORD scanCount = 10;
+    // char* buffer = (char*)&scanCount;
+    // if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
+    //     std::cerr << WSAGetLastError() << std::endl;
+    //     return GENERIC_ERROR;
+    // }
+    if(sendMessagecodeUDPServer(mainServer, REQUEST_AVG, nullptr, 0) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
         return GENERIC_ERROR;
     }
@@ -1028,6 +1034,19 @@ ErrCode changeMode(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
+struct ESPStatus{
+    DWORD ip;
+    WORD port;
+    std::vector<std::string> ssids;
+    BYTE connectionStatus;
+};
+ESPStatus espStatus;
+
+ErrCode requestEspStatus(void*)noexcept{
+    // sendMessagecodeUDPServer(mainServer, YES, data, 10);
+    return SUCCESS;
+}
+
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){    
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0){
@@ -1135,7 +1154,18 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 ScreenVec position = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
                 drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                WORD size = font.pixelSize;
+                font.pixelSize = 20;
                 circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
+                drawFontStringCentered(window, font, chars, "Berechnete Position", position.x+200, position.y+10);
+                font.pixelSize = size;
+                if(realEspPositionSet){
+                    circles.push_back({realEspPosition.x, realEspPosition.y, 8, 0, RGBA(200, 60, 60)});
+                    WORD size = font.pixelSize;
+                    font.pixelSize = 20;
+                    drawFontStringCentered(window, font, chars, "ESP32 Position", realEspPosition.x, realEspPosition.y+10);
+                    font.pixelSize = size;
+                }
                 break;
             }
             case HEATMAPMODE:{
@@ -1162,7 +1192,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 blink++;
                 drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
                 for(BYTE i=0; i < routerPositionsCount; ++i){
-                    circles.push_back({(WORD)routerPositions[i].x, (WORD)routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
+                    circles.push_back({routerPositions[i].x, routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
+                    std::string routerText = "Router ";
+                    routerText += longToString(i+1);
+                    WORD size = font.pixelSize;
+                    font.pixelSize = 20;
+                    drawFontStringCentered(window, font, chars, routerText.c_str(), routerPositions[i].x, routerPositions[i].y+10);
+                    font.pixelSize = size;
                 }
                 break;
             }
@@ -1240,9 +1276,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         if(getButton(mouse, MOUSE_RMB)){
             int x = mouse.x-200;
             int y = mouse.y;
-            if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
-                if(routerPositionsCount >= HEATMAPCOUNT) routerPositionsCount = 0;
-                else routerPositions[routerPositionsCount++] = {mouse.x, mouse.y};
+            switch(mode){
+                case HEATMAPMODE:
+                    if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
+                        if(routerPositionsCount >= HEATMAPCOUNT) routerPositionsCount = 0;
+                        else routerPositions[routerPositionsCount++] = {mouse.x, mouse.y};
+                    }
+                    break;
+                case SEARCHMODE:
+                    if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
+                        realEspPosition = {mouse.x, mouse.y};
+                        realEspPositionSet= !realEspPositionSet;
+                    }
+                    break;
             }
             setButton(mouse, MOUSE_PREV_RMB);
         }else{

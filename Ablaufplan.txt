@@ -42,11 +42,11 @@ Zeitplan:
 		Fertig sein, Korrektur lesen, Rückmeldung Prof
 
 Basis:
-	1 Messpunkt -> Wie viele db Messungen sind nötig um eine stabiles Ergebnis zu bekommen		X
+	1 Messpunkt -> Wie viele db Messungen sind nötig um eine stabiles Ergebnis zu bekommen (10 Schritte)	X
 		-> 50 - 100 reichen voll aus
-	Welche Methode ist am besten für eine stabile/konsistente db Schätzung am Messpunkt			X
+	Welche Methode ist am besten für eine stabile/konsistente db Schätzung am Messpunkt						X
 		-> Avg oder Max liefern meist das gleiche Ergebnis, da bei guten Signalstärken oft ein Peak entsteht mit minimaler Streuung
-	Histogramme ob Reflexionen oder Penetrationen vom Esp32 aufgenommen werden					X
+	Histogramme ob Reflexionen oder Penetrationen vom Esp32 aufgenommen werden								X
 		-> Nein, egal ob eine Wand oder ein Metallobjekt hinter dem Esp32 ist, es macht keinen Unterschied
 	-> Optimale Anzahl für alle weiteren Tests
 	1-4 Router testen
