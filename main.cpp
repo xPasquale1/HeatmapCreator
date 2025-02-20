@@ -56,7 +56,6 @@ Hashmap datapoints;      //Speichert die Datenpunkte, welche Angeziegt, für Ber
 
 #define coordinatesToKey(x, y)((x<<16)|y)
 
-std::vector<SBYTE> singleRssiData;
 std::vector<SBYTE> rssiData[HEATMAPCOUNT];
 
 BYTE mode = 0;
@@ -107,7 +106,7 @@ void processNetworkPackets()noexcept{
         int length = receiveUDPServer(mainServer, buffer, sizeof(buffer));
         if(length != SOCKET_ERROR){     //TODO Problem ist der Timeout wird auch als SOCKET_ERROR ausgegeben...
             switch((BYTE)buffer[0]){
-                case 2:{    //Signalstärke der Router
+                case SEND_SIGNALSTRENGTH:{
                     for(int i=1; i < length; ++i){
                         if(i > HEATMAPCOUNT) break;
                         buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom negativen ins positive um
@@ -133,20 +132,9 @@ void processNetworkPackets()noexcept{
                     blink = 8;
                     break;
                 }
-                case 0:{    //X
-                    gx++;
-                    blink = 0;
-                    if(gx >= DATAPOINTRESOLUTIONX) gx = 0;
+                case ACK:{
+                    addPopupText(popupText, std::string("ACK bekommen!"));
                     break;
-                }
-                case 1:{    //Y
-                    gy++;
-                    blink = 0;
-                    if(gy >= DATAPOINTRESOLUTIONY) gy = 0;
-                    break;
-                }
-                case 6:{    //Einzelne Rssi Daten
-                    if(buffer[1] != 0) singleRssiData.push_back(buffer[1]);
                 }
             }
         }
@@ -392,7 +380,6 @@ ErrCode clearHeatmaps(void*)noexcept{
             break;
         case DISPLAYMODE:
             for(BYTE i=0; i < HEATMAPCOUNT; ++i) rssiData[i].clear();
-            singleRssiData.clear();
             break;
     }
     return SUCCESS;
@@ -1195,7 +1182,17 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
                 if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
                 blink++;
-                drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                WORD minSize = floorplan.height;
+                if(floorplan.width < minSize){
+                    float factor = (float)floorplan.width/floorplan.height;
+                    WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
+                    drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
+                }
+                else{
+                    float factor = (float)floorplan.height/floorplan.width;
+                    WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
+                    drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
+                }
                 for(BYTE i=0; i < routerPositionsCount; ++i){
                     circles.push_back({routerPositions[i].x, routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
                     std::string routerText = "Router ";
