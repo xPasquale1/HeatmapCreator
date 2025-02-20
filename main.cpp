@@ -37,6 +37,8 @@ ScreenVec realEspPosition;
 BYTE routerPositionsCount = 0;
 bool realEspPositionSet = false;
 
+PopupText popupText;
+
 enum MODES{
     HEATMAPMODE,
     SEARCHMODE,
@@ -111,7 +113,8 @@ void processNetworkPackets()noexcept{
                         buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom negativen ins positive um
                         if(buffer[i] == 0){
                             buffer[i] = MAXDB;
-                            ErrCheck(GENERIC_ERROR, std::string("Heatmapdaten von Netzwerk " + std::to_string(i) + " wurden nicht aufgezeichnet!").c_str());
+                            addPopupText(popupText, std::string("Netzwerk " + std::to_string(i) + " wurde nicht aufgezeichnet!"));
+                            ErrCheck(GENERIC_ERROR, std::string("Netzwerk " + std::to_string(i) + " wurde nicht aufgezeichnet!").c_str());
                         }
                         switch(mode){
                             case DISPLAYMODE:
@@ -1066,8 +1069,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
     Image floorplan;
-    if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
-    // if(ErrCheck(loadPng("images/layoutOffice.png", floorplan), "Layout laden") != SUCCESS) return -1;
+    // if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
+    if(ErrCheck(loadPng("images/layoutKeller.png", floorplan), "Layout laden") != SUCCESS) return -1;
     std::cout << floorplan.width << ", " << floorplan.height << std::endl;
     for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
         DWORD color =  floorplan.data[i];
@@ -1090,6 +1093,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     buttons[0].textsize = 26;
     mode = -1;
     changeMode(&buttons[0]);
+
+    popupText.pos = {220, 20};
 
     Image distanceImage;
     createImage(distanceImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
@@ -1295,6 +1300,8 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             resetButton(mouse, MOUSE_PREV_RMB);
         }
         
+        updatePopupText(window, font, popupText, chars);
+
         std::string fpsTime = "FPS: ";
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
