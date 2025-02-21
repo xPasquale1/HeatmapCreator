@@ -109,7 +109,7 @@ void processNetworkPackets()noexcept{
                 case SEND_SIGNALSTRENGTH:{
                     for(int i=1; i < length; ++i){
                         if(i > HEATMAPCOUNT) break;
-                        buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom negativen ins positive um
+                        buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom Negativen ins Positive um
                         if(buffer[i] == 0){
                             buffer[i] = MAXDB;
                             addPopupText(popupText, std::string("Netzwerk " + std::to_string(i) + " wurde nicht aufgezeichnet!"));
@@ -134,6 +134,20 @@ void processNetworkPackets()noexcept{
                 }
                 case ACK:{
                     addPopupText(popupText, std::string("ACK bekommen!"));
+                    break;
+                }
+                case SEND_STATUS:{
+                    in_addr ip;
+                    WORD port = 0;
+                    memcpy(&ip.S_un.S_addr, buffer+1, 4);
+                    memcpy(&port, buffer+5, 2);
+                    BYTE ssidCount = buffer[8];
+                    addPopupText(popupText, std::string("Ziel IP: ") + std::string(inet_ntoa(ip)));
+                    addPopupText(popupText, std::string("Ziel Port: " + std::to_string(port)));
+                    DWORD offset = 9;
+                    while(1){
+
+                    }
                     break;
                 }
             }
@@ -1184,12 +1198,12 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 blink++;
                 WORD minSize = floorplan.height;
                 if(floorplan.width < minSize){
-                    float factor = (float)floorplan.width/floorplan.height;
+                    float factor = (float)floorplan.width/floorplan.height * (window.windowWidth-200)/window.windowHeight;
                     WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
                     drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
                 }
                 else{
-                    float factor = (float)floorplan.height/floorplan.width;
+                    float factor = (float)floorplan.height/floorplan.width * (window.windowWidth-200)/window.windowHeight;
                     WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
                     drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
                 }
