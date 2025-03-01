@@ -25,9 +25,9 @@ std::vector<CircleData> circles;
 std::vector<RectangleData> rectangles;
 std::vector<CharData> chars;
 
-//TODO Annahme Signalstärke von -20dB bis -100dB
-#define MAXDB 100
-#define MINDB 20
+//TODO Annahme Signalstärke von -10dB bis -110dB
+#define MAXDB 110
+#define MINDB 10
 
 #define DATAPOINTRESOLUTIONX 100
 #define DATAPOINTRESOLUTIONY 100
@@ -498,13 +498,17 @@ ErrCode decSearchRadius(void*)noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    // WORD scanCount = 10;
-    // char* buffer = (char*)&scanCount;
-    // if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
-    //     std::cerr << WSAGetLastError() << std::endl;
-    //     return GENERIC_ERROR;
-    // }
     if(sendMessagecodeUDPServer(mainServer, REQUEST_AVG, nullptr, 0) <= 0){
+        std::cerr << WSAGetLastError() << std::endl;
+        return GENERIC_ERROR;
+    }
+    return SUCCESS;
+}
+
+ErrCode requestScans(void*)noexcept{
+    WORD scanCount = 10;
+    char* buffer = (char*)&scanCount;
+    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
         return GENERIC_ERROR;
     }
@@ -1006,32 +1010,40 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[2].pos = buttonPos;
             buttons[2].size = buttonSize;
             buttons[2].color = RGBA(0, 140, 40);
-            buttons[2].text = "RSSI Anfrage";
+            buttons[2].text = "Avg RSSI Anfrage";
             buttons[2].event = requestScan;
             buttons[2].data = &buttons[2];
-            buttons[2].textsize = 26;
+            buttons[2].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[3].pos = buttonPos;
             buttons[3].size = buttonSize;
-            buttons[3].color = RGBA(120, 120, 120);
-            buttons[3].text = "Reset Router";
-            buttons[3].event = resetRouters;
-            buttons[3].textsize = 26;
+            buttons[3].color = RGBA(0, 140, 40);
+            buttons[3].text = "10x RSSI Anfrage";
+            buttons[3].event = requestScans;
+            buttons[3].data = &buttons[3];
+            buttons[3].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[4].pos = buttonPos;
             buttons[4].size = buttonSize;
             buttons[4].color = RGBA(120, 120, 120);
-            buttons[4].text = "Loeschen";
-            buttons[4].event = clearHeatmaps;
-            buttons[4].textsize = 32;
+            buttons[4].text = "Reset Router";
+            buttons[4].event = resetRouters;
+            buttons[4].textsize = 26;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[5].pos = buttonPos;
             buttons[5].size = buttonSize;
             buttons[5].color = RGBA(120, 120, 120);
-            buttons[5].text = "Daten speichern";
-            buttons[5].event = printList;
-            buttons[5].textsize = 24;
-            buttonCount = 6;
+            buttons[5].text = "Loeschen";
+            buttons[5].event = clearHeatmaps;
+            buttons[5].textsize = 32;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[6].pos = buttonPos;
+            buttons[6].size = buttonSize;
+            buttons[6].color = RGBA(120, 120, 120);
+            buttons[6].text = "Daten speichern";
+            buttons[6].event = printList;
+            buttons[6].textsize = 24;
+            buttonCount = 7;
             inputCount = 0;
             break;
     }
@@ -1158,8 +1170,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 }
                 updateSlider(window, thresholdSilder, font, rectangles, circles, chars);
                 ScreenVec position = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
-                drawImage(window, distanceImage, 200, 0, window.windowWidth, window.windowHeight);
-                drawImage(window, floorplan, 200, 0, window.windowWidth, window.windowHeight);
+                WORD minSize = floorplan.height;
+                if(floorplan.width < minSize){
+                    float factor = (float)floorplan.width/floorplan.height * (window.windowWidth-200)/window.windowHeight;
+                    WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
+                    drawImage(window, distanceImage, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
+                    drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
+                }
+                else{
+                    float factor = (float)floorplan.height/floorplan.width * (window.windowWidth-200)/window.windowHeight;
+                    WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
+                    drawImage(window, distanceImage, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
+                    drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
+                }
                 WORD size = font.pixelSize;
                 font.pixelSize = 20;
                 circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
