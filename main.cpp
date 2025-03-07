@@ -36,6 +36,7 @@ ScreenVec routerPositions[HEATMAPCOUNT];
 ScreenVec realEspPosition;
 BYTE routerPositionsCount = 0;
 bool realEspPositionSet = false;
+float pixelToMeterRatio = 0.02;
 
 PopupText popupText;
 
@@ -71,6 +72,8 @@ Button buttons[15];
 TextInput inputs[3];
 WORD buttonCount = 0;
 WORD inputCount = 0;
+
+Image floorplan;
 
 LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -506,7 +509,7 @@ ErrCode requestScan(void*)noexcept{
 }
 
 ErrCode requestScans(void*)noexcept{
-    WORD scanCount = 10;
+    WORD scanCount = 200;
     char* buffer = (char*)&scanCount;
     if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
@@ -680,17 +683,16 @@ void checkTile(Image& distanceImage, Image& bufferImage, std::vector<std::pair<W
 }
 
 constexpr DWORD colorPicker(BYTE idx)noexcept{
-    switch(idx%8){
-        case 0: return RGBA(255, 255, 255);
-        case 1: return RGBA(255, 0, 0);
-        case 2: return RGBA(0, 255, 0);
-        case 3: return RGBA(0, 0, 255);
-        case 4: return RGBA(128, 128, 128);
-        case 5: return RGBA(255, 255, 0);
-        case 6: return RGBA(0, 255, 255);
-        case 7: return RGBA(255, 0, 255);
+    switch(idx%7){
+        case 0: return RGBA(255, 0, 0, 80);
+        case 1: return RGBA(0, 255, 0, 80);
+        case 2: return RGBA(0, 0, 255, 80);
+        case 3: return RGBA(128, 128, 128, 80);
+        case 4: return RGBA(255, 255, 0, 80);
+        case 5: return RGBA(0, 255, 255, 80);
+        case 6: return RGBA(255, 0, 255, 80);
     }
-    return RGBA(0, 0, 0);
+    return RGBA(32, 32, 32);
 }
 
 ScreenVec findCluster(Image& distanceImage, float threshold){
@@ -811,9 +813,9 @@ ErrCode printList(void* buttonPtr)noexcept{
     if(!file.is_open()) return OPEN_FILE;
     file << "{\n";
     for(BYTE i=0; i < HEATMAPCOUNT; ++i){
-        file << "\t\"Heatmap" << (int)i << "\" :[";
+        file << "\t\"Heatmap" << (int)i << "\": [";
         for(size_t j=0; j < rssiData[i].size(); ++j){
-            file << (int)rssiData[i][j];
+            file << -(int)rssiData[i][j];
             if(j < rssiData[i].size()-1) file << ", ";
         }
         file << "]";
@@ -824,6 +826,47 @@ ErrCode printList(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
+ErrCode setPixelToMeterRatio(void* input)noexcept{
+    TextInput& textInput = *(TextInput*)input;
+    if(textInput.text.size() < 1) return SUCCESS;
+    pixelToMeterRatio = stringToFloat(textInput.text.c_str());
+    textInput.text.clear();
+    return SUCCESS;
+}
+
+struct ESPStatus{
+    DWORD ip;
+    WORD port;
+    std::vector<std::string> ssids;
+    BYTE connectionStatus;
+};
+ESPStatus espStatus;
+
+ErrCode requestEspStatus(void*)noexcept{
+    // sendMessagecodeUDPServer(mainServer, YES, data, 10);
+    return SUCCESS;
+}
+
+ErrCode loadLayout(void*)noexcept{
+    OPENFILENAME ofn = {};
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    // ofn.hwndOwner = window.handle;
+    BYTE fileDir[MAX_PATH]{};
+    ofn.lpstrFile = (LPSTR)fileDir;
+    ofn.nMaxFile = sizeof(fileDir);
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    char currentDir[MAX_PATH]{0};
+    DWORD directoryLength = GetCurrentDirectoryA(MAX_PATH, currentDir);
+    if(directoryLength == 0) return OPEN_FILE;
+    currentDir[directoryLength] = '\\';
+    ofn.lpstrInitialDir = currentDir;
+    ofn.lpstrFilter = "PNG .png\0*.png\0";
+    ofn.nFilterIndex = 1;
+    if(GetOpenFileName(&ofn) != TRUE) return SUCCESS;
+
+    return loadPng(ofn.lpstrFile, floorplan);
+}
+
 ErrCode changeMode(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++mode;
@@ -832,7 +875,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             mode = HEATMAPMODE;
         case HEATMAPMODE:{
             button->text = "Heatmap-Mode";
-            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonSize = {180, 55};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -916,13 +959,20 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[8].text = "Reset Router";
             buttons[8].event = resetRouters;
             buttons[8].textsize = 24;
-            buttonCount = 9;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[9].pos = buttonPos;
+            buttons[9].size = buttonSize;
+            buttons[9].color = RGBA(120, 120, 120);
+            buttons[9].text = "Layout laden";
+            buttons[9].event = loadLayout;
+            buttons[9].textsize = 24;
+            buttonCount = 10;
             inputCount = 3;
             break;
         }
         case SEARCHMODE:{
             button->text = "Search-Mode";
-            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonSize = {180, 55};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -991,13 +1041,20 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[9].text = "Reset Router";
             buttons[9].event = resetRouters;
             buttons[9].textsize = 26;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[0].pos = buttonPos;
+            inputs[0].size = buttonSize;
+            inputs[0].backgroundText = "Pixel to Meter Ratio";
+            inputs[0].textSize = 20;
+            inputs[0].event = setPixelToMeterRatio;
+            inputs[0].data = &inputs[0];
             buttonCount = 10;
-            inputCount = 0;
+            inputCount = 1;
             break;
         }
         case DISPLAYMODE:
             button->text = "Display-Mode";
-            ScreenVec buttonSize = {180, 60};
+            ScreenVec buttonSize = {180, 55};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -1043,23 +1100,18 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[6].text = "Daten speichern";
             buttons[6].event = printList;
             buttons[6].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[0].pos = buttonPos;
+            inputs[0].size = buttonSize;
+            inputs[0].backgroundText = "SSID hinzu.";
+            inputs[0].textSize = 28;
+            inputs[0].event = sendRouterName;
+            inputs[0].data = &inputs[0];
+            setTextInputFlag(inputs[0], TEXTCENTERED);
             buttonCount = 7;
-            inputCount = 0;
+            inputCount = 1;
             break;
     }
-    return SUCCESS;
-}
-
-struct ESPStatus{
-    DWORD ip;
-    WORD port;
-    std::vector<std::string> ssids;
-    BYTE connectionStatus;
-};
-ESPStatus espStatus;
-
-ErrCode requestEspStatus(void*)noexcept{
-    // sendMessagecodeUDPServer(mainServer, YES, data, 10);
     return SUCCESS;
 }
 
@@ -1081,17 +1133,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
-    Image floorplan;
-    // if(ErrCheck(loadImage("images/layout.tex", floorplan), "Layout laden") != SUCCESS) return -1;
-    if(ErrCheck(loadPng("images/layoutKeller.png", floorplan), "Layout laden") != SUCCESS) return -1;
-    std::cout << floorplan.width << ", " << floorplan.height << std::endl;
-    for(DWORD i=0; i < floorplan.width*floorplan.height; ++i){
-        DWORD color =  floorplan.data[i];
-        if(A(color) > 0)
-            floorplan.data[i] = RGBA(255, 255, 255, 65);
-        else
-            floorplan.data[i] = RGBA(0, 0, 0, 0);
-    }
+    if(ErrCheck(loadPng("images/layoutZimmer.png", floorplan), "Layout laden") != SUCCESS) return -1;
 
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
@@ -1156,6 +1198,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         for(WORD i=0; i < inputCount; ++i) updateTextInput(window, inputs[i], font, rectangles, chars);
         clearWindow(window);
 
+        ScreenVec predictedPosition;
         switch(mode){
             case SEARCHMODE:{
                 calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
@@ -1169,25 +1212,30 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                     }
                 }
                 updateSlider(window, thresholdSilder, font, rectangles, circles, chars);
-                ScreenVec position = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
+                predictedPosition = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
                 WORD minSize = floorplan.height;
                 if(floorplan.width < minSize){
                     float factor = (float)floorplan.width/floorplan.height * (window.windowWidth-200)/window.windowHeight;
                     WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
                     drawImage(window, distanceImage, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
                     drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
+                    WORD size = font.pixelSize;
+                    font.pixelSize = 20;
+                    circles.push_back({(WORD)(predictedPosition.x*factor+200+offset), predictedPosition.y, 5, 0, RGBA(255, 255, 255)});
+                    drawFontStringCentered(window, font, chars, "Berechnete Position", predictedPosition.x*factor+200+offset, predictedPosition.y+10);
+                    font.pixelSize = size;
                 }
                 else{
                     float factor = (float)floorplan.height/floorplan.width * (window.windowWidth-200)/window.windowHeight;
                     WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
                     drawImage(window, distanceImage, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
                     drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
+                    WORD size = font.pixelSize;
+                    font.pixelSize = 20;
+                    circles.push_back({(WORD)(predictedPosition.x+200), (WORD)(predictedPosition.y*factor+offset), 5, 0, RGBA(255, 255, 255)});
+                    drawFontStringCentered(window, font, chars, "Berechnete Position", predictedPosition.x+200, predictedPosition.y*factor+offset+10);
+                    font.pixelSize = size;
                 }
-                WORD size = font.pixelSize;
-                font.pixelSize = 20;
-                circles.push_back({(WORD)(position.x+200), position.y, 5, 0, RGBA(255, 255, 255)});
-                drawFontStringCentered(window, font, chars, "Berechnete Position", position.x+200, position.y+10);
-                font.pixelSize = size;
                 if(realEspPositionSet){
                     circles.push_back({realEspPosition.x, realEspPosition.y, 8, 0, RGBA(200, 60, 60)});
                     WORD size = font.pixelSize;
@@ -1296,7 +1344,19 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         WORD imageY = (gy*heatmapsInterpolated[showHeatmapIdx].height)/DATAPOINTRESOLUTIONY;
         BYTE selectedStrength = colorComponentToRssi(R(heatmapsInterpolated[showHeatmapIdx].data[imageY*heatmapsInterpolated[showHeatmapIdx].width+imageX]));
         DWORD selectedStrengthStringoffset = drawFontString(window, font, chars, longToString(-selectedStrength), 10, 10);
-        selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
+        switch(mode){
+            case HEATMAPMODE:
+                selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
+                break;
+            case SEARCHMODE:{
+                fvec2 diff = {(float)(realEspPosition.x - (predictedPosition.x+200)), (float)(realEspPosition.y - predictedPosition.y)};
+                float dist = length(diff) * pixelToMeterRatio;
+                std::string distText = floatToString(dist, 3);
+                distText += 'm';
+                selectedStrengthStringoffset += drawFontString(window, font, chars, distText.c_str(), 30+selectedStrengthStringoffset, 10);
+                break;
+            }
+        }
 
         if(mode == SEARCHMODE){
             DWORD offset = drawFontString(window, font, chars, longToString(searchRadius), (buttons[2].pos.x+buttons[2].size.x+buttons[2].size.y*0.125), buttons[2].pos.y);

@@ -41,6 +41,13 @@ Zeitplan:
 	Letzte Aprilwoche:
 		Fertig sein, Korrektur lesen, Rückmeldung Prof
 
+Grundbasis:
+	3 Router -> Weil Triangulation
+	1 Messung pro Messpunkt
+	4-5 Messpunkte im Raum -> Damit die Heatmap den ganzen Raum abdeckt
+	Positionsbestimmung per höchste Übereinstimmung der Heatmaps
+	Keine Antenne
+
 Basis:
 	1 Messpunkt -> Wie viele db Messungen sind nötig um eine stabiles Ergebnis zu bekommen (10 Schritte)	X
 		-> 50 - 100 reichen voll aus
@@ -49,6 +56,30 @@ Basis:
 	Histogramme ob Reflexionen oder Penetrationen vom Esp32 aufgenommen werden								X
 		-> Nein, egal ob eine Wand oder ein Metallobjekt hinter dem Esp32 ist, es macht keinen Unterschied
 	-> Optimale Anzahl für alle weiteren Tests
-	1-4 Router testen
-	9-100 Messpunkte nutzen (10 Schritte)
+	Kleine Anzahl von Messpunkten (mit 4-5 anfangen)
+	Positionsbestimmung
+	Esp ohne Antenne
+	
+Verbesserungen:
+	1. Antenne
+	2. Mehr Messpunkte
+	3. Mehr Router
+	
+Neuste Ergebnisse:
+	- Antenne reduziert Rotationsfehler von 12dB zu 5dB
+	- Antenne verbessert das Signal IMMENS
+	- Kleine Räume sind nun schrecklich
+	- Große Räume sind bemerkenswert
+
+TODOs:
+	- Cluster Bildung sollte Raum Layout berücksichtigen
+	- Tests, ob das System in Echzeit funktionieren könnte
+	- Methode um herauszufinden, wie gut die Positionsschätzung war (mit welchem Distanzfehler man rechnen kann)
+	- Tests in anderen Umgebungen
+	- Tests mit Leuten im Umfeld
+	- TCP
+	- Software soll Fehlerdistanz berechnen und anzeigen
+	
+Ideen:
+	- Zeitmessung anstatt Signalstärken (bei 2.4Ghz braucht das Signal für 10cm ca. 0.334ns)
 	
