@@ -38,6 +38,8 @@ BYTE routerPositionsCount = 0;
 bool realEspPositionSet = false;
 float pixelToMeterRatio = 0.02;
 
+DWORD scanCount = 10;
+
 PopupText popupText;
 
 enum MODES{
@@ -69,7 +71,7 @@ BYTE blink = 0;
 Image heatmapsInterpolated[HEATMAPCOUNT];   //TODO dynamisch
 
 Button buttons[15];
-TextInput inputs[3];
+TextInput inputs[5];
 WORD buttonCount = 0;
 WORD inputCount = 0;
 
@@ -508,8 +510,15 @@ ErrCode requestScan(void*)noexcept{
     return SUCCESS;
 }
 
+ErrCode setScanCount(void* input)noexcept{
+    TextInput& textInput = *(TextInput*)input;
+    if(textInput.text.size() < 1) return SUCCESS;
+    scanCount = (DWORD)stringToFloat(textInput.text.c_str());
+    textInput.text.clear();
+    return SUCCESS;
+}
+
 ErrCode requestScans(void*)noexcept{
-    WORD scanCount = 200;
     char* buffer = (char*)&scanCount;
     if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
         std::cerr << WSAGetLastError() << std::endl;
@@ -966,8 +975,16 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[9].text = "Layout laden";
             buttons[9].event = loadLayout;
             buttons[9].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[3].pos = buttonPos;
+            inputs[3].size = buttonSize;
+            inputs[3].backgroundText = "Scan Anzahl";
+            inputs[3].textSize = 24;
+            inputs[3].event = setScanCount;
+            inputs[3].data = &inputs[3];
+            setTextInputFlag(inputs[3], TEXTCENTERED);
             buttonCount = 10;
-            inputCount = 3;
+            inputCount = 4;
             break;
         }
         case SEARCHMODE:{
@@ -1048,8 +1065,16 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[0].textSize = 20;
             inputs[0].event = setPixelToMeterRatio;
             inputs[0].data = &inputs[0];
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[1].pos = buttonPos;
+            inputs[1].size = buttonSize;
+            inputs[1].backgroundText = "Scan Anzahl";
+            inputs[1].textSize = 24;
+            inputs[1].event = setScanCount;
+            inputs[1].data = &inputs[1];
+            setTextInputFlag(inputs[1], TEXTCENTERED);
             buttonCount = 10;
-            inputCount = 1;
+            inputCount = 2;
             break;
         }
         case DISPLAYMODE:
@@ -1108,8 +1133,16 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[0].event = sendRouterName;
             inputs[0].data = &inputs[0];
             setTextInputFlag(inputs[0], TEXTCENTERED);
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            inputs[1].pos = buttonPos;
+            inputs[1].size = buttonSize;
+            inputs[1].backgroundText = "Scan Anzahl";
+            inputs[1].textSize = 24;
+            inputs[1].event = setScanCount;
+            inputs[1].data = &inputs[1];
+            setTextInputFlag(inputs[1], TEXTCENTERED);
             buttonCount = 7;
-            inputCount = 1;
+            inputCount = 2;
             break;
     }
     return SUCCESS;
@@ -1133,7 +1166,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
-    if(ErrCheck(loadPng("images/layoutZimmer.png", floorplan), "Layout laden") != SUCCESS) return -1;
+    if(ErrCheck(loadPng("images/layoutComputerraum.png", floorplan), "Layout laden") != SUCCESS) return -1;
 
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 

@@ -62,8 +62,8 @@ def plot_from_file(filepath):
 
         offset += bar_width
 
-    plt.xlabel("Zahl im Array")
-    plt.ylabel("Anzahl (Häufigkeit)")
+    plt.xlabel("Signalstärke in dB")
+    plt.ylabel("Anzahl der Messungen")
     plt.title("Häufigkeitsverteilung der Heatmaps")
     plt.legend()
     plt.grid(axis="y", linestyle="--", alpha=0.6)

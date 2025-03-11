@@ -11,6 +11,11 @@ struct UDPServer{
     sockaddr_in receiver;
 };
 
+struct TCPServer{
+    SOCKET socket;
+    sockaddr_in receiver;
+};
+
 enum MESSAGECODES{
     SEND_POSITION_X,
     SEND_POSITION_Y,
@@ -58,7 +63,55 @@ ErrCode destroyUDPServer(UDPServer& server){
     return SUCCESS;
 }
 
+/// @brief Erstellt einen TCP Server auf dem Port port mit einem Timeout von timeoutMillis in Millisekunden für recv-Aufrufe und speichert alle Daten im server struct
+/// @param server Das TCP Server struct
+/// @param port Der Serverport
+/// @param timeoutMillis Das Timeout
+/// @return ErrCode
+ErrCode createTCPServer(TCPServer& server, u_short port, DWORD timeoutMillis = 10){
+    server.socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if(server.socket == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
+
+    sockaddr_in serverAddr = {};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port);
+    serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
+
+    server.receiver.sin_family = AF_INET;
+
+    int broadcastEnable = 1;
+    if(setsockopt(server.socket, SOL_SOCKET, SO_BROADCAST, (char*)&broadcastEnable, sizeof(broadcastEnable)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
+    if(setsockopt(server.socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
+
+    // if(bind(server.socket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht binden");
+    return SUCCESS;
+}
+
+/// @brief Löscht den TCP-Server und alle allokierten Ressourcen
+/// @param server Das TCP Server struct
+/// @return ErrCode
+ErrCode destroyTCPServer(TCPServer& server){
+    if(closesocket(server.socket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Socket schließen");
+    return SUCCESS;
+}
+
 //TODO ErrCode
+
+/// @brief Wartet auf den Empfang von UDP Packeten und blockiert, sendet -1 bei Fehlern zurück, optional kann man eine sockaddr_in angeben, welche dann die Sender Informationen beinhaltet
+/// @param server Das UDP Server struct
+/// @param buffer Ein Empfangspuffer
+/// @param bufferSize Die Größe des Empfangspuffer
+/// @param transmitter Optional, beschreibt das transmitter struct mit den Daten des Senders
+/// @return 
+int receiveUDPServer(UDPServer& server, char* buffer, int bufferSize, sockaddr_in* transmitter = nullptr){
+    if(!transmitter){
+        sockaddr_in peer;
+        transmitter = &peer;
+        int sizeOfPeer = sizeof(peer);
+    }
+    int size = sizeof(sockaddr);
+    return recvfrom(server.socket, buffer, bufferSize, 0, (sockaddr*)transmitter, &size);
+}
 
 /// @brief Wartet auf den Empfang von UDP Packeten und blockiert, sendet -1 bei Fehlern zurück, optional kann man eine sockaddr_in angeben, welche dann die Sender Informationen beinhaltet
 /// @param server Das UDP Server struct
