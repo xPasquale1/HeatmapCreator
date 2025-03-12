@@ -539,7 +539,7 @@ ErrCode sendRouterName(void* input)noexcept{
 }
 
 ErrCode resetRouters(void*)noexcept{
-    if(sendMessagecodeTCPConnection(tcpConnection, RESET_ROUTERS, nullptr, 0) == SOCKET_ERROR) return GENERIC_ERROR;
+    if(sendMessagecodeTCPConnection(tcpConnection, RESET_ROUTERS, nullptr, 0) <= 0) return GENERIC_ERROR;
     return SUCCESS;
 }
 
@@ -1158,7 +1158,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
-    if(ErrCheck(createTCPConnection(tcpConnection, 4984), "TCP Connection erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createTCPConnection(tcpConnection, 4985), "TCP Connection erstellen") != SUCCESS) return -1;
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
