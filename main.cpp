@@ -18,7 +18,8 @@
 
 Window window;
 Font font;
-UDPServer mainServer;
+// UDPServer mainServer;
+TCPConnection tcpConnection;
 
 std::vector<LineData> lines;
 std::vector<CircleData> circles;
@@ -108,8 +109,9 @@ void processNetworkPackets()noexcept{
     char buffer[1024];
     while(1){
         if(!running) break;
-        int length = receiveUDPServer(mainServer, buffer, sizeof(buffer));
-        if(length != SOCKET_ERROR){     //TODO Problem ist der Timeout wird auch als SOCKET_ERROR ausgegeben...
+        if(listenTCPConnection(tcpConnection) != SUCCESS) continue;
+        int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer));
+        if(length > 0){
             switch((BYTE)buffer[0]){
                 case SEND_SIGNALSTRENGTH:{
                     for(int i=1; i < length; ++i){
@@ -150,9 +152,9 @@ void processNetworkPackets()noexcept{
                     addPopupText(popupText, std::string("Ziel IP: ") + std::string(inet_ntoa(ip)));
                     addPopupText(popupText, std::string("Ziel Port: " + std::to_string(port)));
                     DWORD offset = 9;
-                    while(1){
+                    // while(1){
 
-                    }
+                    // }
                     break;
                 }
             }
@@ -503,7 +505,7 @@ ErrCode decSearchRadius(void*)noexcept{
 }
 
 ErrCode requestScan(void*)noexcept{
-    if(sendMessagecodeUDPServer(mainServer, REQUEST_AVG, nullptr, 0) <= 0){
+    if(sendMessagecodeTCPConnection(tcpConnection, REQUEST_AVG, nullptr, 0) == SOCKET_ERROR){
         std::cerr << WSAGetLastError() << std::endl;
         return GENERIC_ERROR;
     }
@@ -520,7 +522,7 @@ ErrCode setScanCount(void* input)noexcept{
 
 ErrCode requestScans(void*)noexcept{
     char* buffer = (char*)&scanCount;
-    if(sendMessagecodeUDPServer(mainServer, REQUEST_SCANS, buffer, 2) <= 0){
+    if(sendMessagecodeTCPConnection(tcpConnection, REQUEST_SCANS, buffer, 2) == SOCKET_ERROR){
         std::cerr << WSAGetLastError() << std::endl;
         return GENERIC_ERROR;
     }
@@ -531,36 +533,37 @@ ErrCode sendRouterName(void* input)noexcept{
     TextInput& textInput = *(TextInput*)input;
     if(textInput.text.size() < 1) return SUCCESS;
     char buffer[textInput.text.size()];
-    if(sendMessagecodeUDPServer(mainServer, ADD_ROUTER, textInput.text.c_str(), textInput.text.size()) < 1) return GENERIC_ERROR;
+    if(sendMessagecodeTCPConnection(tcpConnection, ADD_ROUTER, textInput.text.c_str(), textInput.text.size()) == SOCKET_ERROR) return GENERIC_ERROR;
     textInput.text.clear();
     return SUCCESS;
 }
 
 ErrCode resetRouters(void*)noexcept{
-    if(sendMessagecodeUDPServer(mainServer, RESET_ROUTERS, nullptr, 0) < 1) return GENERIC_ERROR;
+    if(sendMessagecodeTCPConnection(tcpConnection, RESET_ROUTERS, nullptr, 0) == SOCKET_ERROR) return GENERIC_ERROR;
     return SUCCESS;
 }
 
 ErrCode setEspIP(void* input)noexcept{
     TextInput& textInput = *(TextInput*)input;
     if(textInput.text.size() < 1) return SUCCESS;
-    changeUDPServerDestination(mainServer, textInput.text.c_str(), 4984);
+    // changeUDPServerDestination(mainServer, textInput.text.c_str(), 4984);
+    if(connectTCPConnection(tcpConnection, textInput.text.c_str(), 4984, 1000) != SUCCESS) addPopupText(popupText, "Konnte keine Verbindung zum ESP herstellen!");
     textInput.text.clear();
     return SUCCESS;
 }
 
-ErrCode setSendIP(void* input)noexcept{
-    TextInput& textInput = *(TextInput*)input;
-    if(textInput.text.size() < 1) return SUCCESS;
-    char data[6];
-    DWORD ip = htonl(inet_addr(textInput.text.c_str()));
-    WORD port = htons(4984);                                    //TODO Sollte man auch angeben können
-    memcpy(data, &ip, 4);
-    memcpy(data+4, &port, 2);
-    if(sendMessagecodeUDPServer(mainServer, SETSENDIP, data, sizeof(data)) < 1) return GENERIC_ERROR;
-    textInput.text.clear();
-    return SUCCESS;
-}
+// ErrCode setSendIP(void* input)noexcept{
+//     TextInput& textInput = *(TextInput*)input;
+//     if(textInput.text.size() < 1) return SUCCESS;
+//     char data[6];
+//     DWORD ip = htonl(inet_addr(textInput.text.c_str()));
+//     WORD port = htons(4984);                                    //TODO Sollte man auch angeben können
+//     memcpy(data, &ip, 4);
+//     memcpy(data+4, &port, 2);
+//     // if(sendMessagecodeUDPServer(mainServer, SETSENDIP, data, sizeof(data)) < 1) return GENERIC_ERROR;
+//     textInput.text.clear();
+//     return SUCCESS;
+// }
 
 static bool simulateRSSI = false;
 ErrCode toggleSimulation(void* buttonPtr)noexcept{
@@ -953,14 +956,14 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[1].textSize = 28;
             inputs[1].event = setEspIP;
             inputs[1].data = &inputs[1];
-            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            inputs[2].pos = buttonPos;
-            inputs[2].size = buttonSize;
-            inputs[2].backgroundText = "Ziel IP des Esp32";
-            inputs[2].textSize = 24;
-            inputs[2].event = setSendIP;
-            inputs[2].data = &inputs[2];
-            setTextInputFlag(inputs[1], TEXTCENTERED);
+            // buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            // inputs[2].pos = buttonPos;
+            // inputs[2].size = buttonSize;
+            // inputs[2].backgroundText = "Ziel IP des Esp32";
+            // inputs[2].textSize = 24;
+            // inputs[2].event = setSendIP;
+            // inputs[2].data = &inputs[2];
+            // setTextInputFlag(inputs[2], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[8].pos = buttonPos;
             buttons[8].size = buttonSize;
@@ -976,15 +979,15 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[9].event = loadLayout;
             buttons[9].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            inputs[3].pos = buttonPos;
-            inputs[3].size = buttonSize;
-            inputs[3].backgroundText = "Scan Anzahl";
-            inputs[3].textSize = 24;
-            inputs[3].event = setScanCount;
-            inputs[3].data = &inputs[3];
-            setTextInputFlag(inputs[3], TEXTCENTERED);
+            inputs[2].pos = buttonPos;
+            inputs[2].size = buttonSize;
+            inputs[2].backgroundText = "Scan Anzahl";
+            inputs[2].textSize = 24;
+            inputs[2].event = setScanCount;
+            inputs[2].data = &inputs[2];
+            setTextInputFlag(inputs[2], TEXTCENTERED);
             buttonCount = 10;
-            inputCount = 4;
+            inputCount = 3;
             break;
         }
         case SEARCHMODE:{
@@ -1155,8 +1158,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
-    if(ErrCheck(createUDPServer(mainServer, 4984), "Main UDP Server erstellen") != SUCCESS) return -1;
-    changeUDPServerDestination(mainServer, "255.255.255.255", 4984);
+    if(ErrCheck(createTCPConnection(tcpConnection, 4984), "TCP Connection erstellen") != SUCCESS) return -1;
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
@@ -1468,7 +1470,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
     destroyHashmap(datapoints);
 
-    destroyUDPServer(mainServer);
+    destroyTCPConnection(tcpConnection);
     WSACleanup();
     destroyFont(font);
     for(int i=0; i < HEATMAPCOUNT; ++i){

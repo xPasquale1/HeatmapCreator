@@ -11,17 +11,6 @@ struct UDPServer{
     sockaddr_in receiver;
 };
 
-struct TCPServer{
-    SOCKET listeningSocket;
-    SOCKET transferSocket = INVALID_SOCKET;
-    sockaddr_in address;
-    sockaddr receiver;
-};
-
-struct TCPClient{
-    SOCKET socket;
-};
-
 enum MESSAGECODES{
     SEND_POSITION_X,
     SEND_POSITION_Y,
@@ -44,7 +33,7 @@ enum MESSAGECODES{
 /// @return ErrCode
 ErrCode createUDPServer(UDPServer& server, u_short port, DWORD timeoutMillis = 10)noexcept{
     server.socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if(server.socket == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
+    if(server.socket == INVALID_SOCKET) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
@@ -123,34 +112,164 @@ int sendMessagecodeUDPServer(UDPServer& server, MESSAGECODES code, const char* b
     return sendto(server.socket, sendBuffer, sendBufferLength, 0, (sockaddr*)&server.receiver, sizeof(server.receiver));
 }
 
-ErrCode createTCPServer(TCPServer& server, u_short port)noexcept{
-    server.listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if(server.listeningSocket == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
+struct TCPConnection{
+    SOCKET listeningSocket = INVALID_SOCKET;
+    SOCKET transferSocket = INVALID_SOCKET;
+};
+
+ErrCode createTCPConnection(TCPConnection& conn, u_short port)noexcept{
+    conn.listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if(conn.listeningSocket == INVALID_SOCKET) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
 
     sockaddr_in serverAddr = {};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
     serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
 
-    server.address.sin_family = AF_INET;
+    int opt = 1;
+    setsockopt(conn.listeningSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+    u_long mode = 1;
+    ioctlsocket(conn.listeningSocket, FIONBIO, &mode);
 
-    // if(setsockopt(server.listeningSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
-
-    if(bind(server.listeningSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht binden");
+    if(bind(conn.listeningSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht binden");
+    if(listen(conn.listeningSocket, 1)) return ErrCheck(GENERIC_ERROR, "TCP Connection Listen");
     return SUCCESS;
 }
 
-ErrCode destroyTCPServer(TCPServer& server)noexcept{
-    if(server.transferSocket != INVALID_SOCKET){
-        if(closesocket(server.transferSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Transfer Socket schließen");
+ErrCode disconnectTCPConnection(TCPConnection& conn)noexcept{
+    if(conn.transferSocket == INVALID_SOCKET) return SUCCESS;
+    if(shutdown(conn.transferSocket, SD_BOTH) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Shutdown Transfer Socket");
+    if(closesocket(conn.transferSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Transfer Socket schließen");
+    conn.transferSocket = INVALID_SOCKET;
+    return SUCCESS;
+}
+
+ErrCode destroyTCPConnection(TCPConnection& conn)noexcept{
+    if(disconnectTCPConnection(conn) != SUCCESS) return GENERIC_ERROR;
+    if(closesocket(conn.listeningSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Listening Socket schließen");
+    conn.listeningSocket = INVALID_SOCKET;
+    return SUCCESS;
+}
+
+bool connectionOnTCPConnection(TCPConnection& conn)noexcept{
+    return conn.transferSocket != INVALID_SOCKET;
+}
+
+/// @brief Diese Funktion testet, ob sich ein Client verbinden will. Diese Funktion blockiert nicht, daher wird
+/// SUCCESS auch dann zurückgegeben, wenn sich kein Client verbinden will. Um zu testen, ob ein Client verbunden
+/// ist, sollte connectionOnTCPConnection genutzt werden! Falls bereits ein Client verbunden ist, wird SUCCESS
+/// zurückgegeben.
+/// @param conn 
+/// @return GENERIC_ERROR bei Fehlern, sonst SUCCESS
+ErrCode listenTCPConnection(TCPConnection& conn, DWORD timeoutMillis = 100)noexcept{
+    if(connectionOnTCPConnection(conn)) return SUCCESS;
+    sockaddr receiver;
+    int clientSize = sizeof(receiver);
+    conn.transferSocket = accept(conn.listeningSocket, &receiver, &clientSize);
+    if(conn.transferSocket == INVALID_SOCKET){
+        if(WSAGetLastError() == WSAEWOULDBLOCK) return SUCCESS;
+        return ErrCheck(GENERIC_ERROR, "TCP Connection Listen neuer Socket");
     }
-    if(closesocket(server.listeningSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Listening Socket schließen");
+    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
     return SUCCESS;
 }
 
-ErrCode listenTCPServer(TCPServer& server)noexcept{
-    if(listen(server.listeningSocket, 1)) return ErrCheck(GENERIC_ERROR, "TCP Server Listen");
-    int clientSize;
-    server.transferSocket = accept(server.listeningSocket, &server.receiver, &clientSize);
-    if(server.transferSocket == INVALID_SOCKET) return ErrCheck(GENERIC_ERROR, "TCP Server Listen neuer Socket");
+ErrCode connectTCPConnection(TCPConnection& conn, const char* ip, u_short port, DWORD timeoutMillis = 100)noexcept{
+    if(disconnectTCPConnection(conn) != SUCCESS) return GENERIC_ERROR;
+    conn.transferSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if(conn.transferSocket == INVALID_SOCKET) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
+
+    sockaddr_in targetAddr = {};
+    targetAddr.sin_family = AF_INET;
+    targetAddr.sin_port = htons(port);
+    targetAddr.sin_addr.s_addr = inet_addr(ip);
+
+    u_long mode = 1;
+    ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+
+    if(connect(conn.transferSocket, (sockaddr*)&targetAddr, sizeof(targetAddr)) == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK){
+        if(closesocket(conn.transferSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Listening Socket schließen");
+        conn.transferSocket = INVALID_SOCKET;
+        return GENERIC_ERROR;
+    }
+
+    fd_set writeSet;
+    FD_ZERO(&writeSet);
+    FD_SET(conn.transferSocket, &writeSet);
+
+    timeval timeout;
+    timeout.tv_sec = timeoutMillis / 1000;
+    timeout.tv_usec = (timeoutMillis % 1000) * 1000;
+
+    int result = select(0, nullptr, &writeSet, nullptr, &timeout);
+
+    if(result <= 0){
+        if(result == 0){
+            closesocket(conn.transferSocket);
+            conn.transferSocket = INVALID_SOCKET;
+            return ErrCheck(GENERIC_ERROR, "Verbindung timeout");
+        }else{
+            closesocket(conn.transferSocket);
+            conn.transferSocket = INVALID_SOCKET;
+            return ErrCheck(GENERIC_ERROR, "Fehler beim select()");
+        }
+    }
+
+    if(FD_ISSET(conn.transferSocket, &writeSet)) return SUCCESS;
+
+    closesocket(conn.transferSocket);
+    conn.transferSocket = INVALID_SOCKET;
+    return ErrCheck(GENERIC_ERROR, "Verbindung fehlgeschlagen");
+
+    return SUCCESS;
+}
+
+/// @brief 
+/// @param conn 
+/// @param buffer 
+/// @param bufferSize 
+/// @return > 0 bei Erfolg, 0 falls Verbindung geschlossen/keine existiert, sonst SOCKET_ERROR
+int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize)noexcept{
+    if(!connectionOnTCPConnection(conn)) return 0;
+    int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
+    if (ret <= 0) { 
+        if(ret == 0 || WSAGetLastError() == WSAECONNRESET){ 
+            if(closesocket(conn.transferSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Transfer Socket schließen");
+            conn.transferSocket = INVALID_SOCKET;
+        }
+    }
+    return ret;
+}
+
+/// @brief Sendet eine Nachricht an den aktuell verbundenen Client
+/// @param conn 
+/// @param code 
+/// @param buffer 
+/// @param bufferSize 
+/// @return Die Anzahl der gesendeten Bytes bei Erfolg, 0 falls keine Verbindung vorhanden ist, sonst SOCKET_ERROR
+int sendMessagecodeTCPConnection(TCPConnection& conn, MESSAGECODES code, const char* buffer, int bufferSize)noexcept{
+    char sendBuffer[80];    //TODO könnte zu klein/groß sein
+    int sendBufferLength = 0;
+    sendBuffer[0] = code;
+    if(!connectionOnTCPConnection(conn)) return 0;
+    switch(code){
+        case REQUEST_AVG:
+        case RESET_ROUTERS:
+            sendBufferLength = 1;
+            break;
+        case SETSENDIP:
+        case ADD_ROUTER:
+            for(int i=0; i < bufferSize; ++i){
+                sendBuffer[i+1] = buffer[i];
+            }
+            sendBufferLength = bufferSize+1;
+            break;
+        case REQUEST_SCANS:
+            sendBuffer[1] = buffer[0];
+            sendBuffer[2] = buffer[1];
+            sendBufferLength = 3;
+            break;
+        default: return -1;
+    }
+    return send(conn.transferSocket, sendBuffer, sendBufferLength, 0);
 }
