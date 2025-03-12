@@ -6,6 +6,8 @@
 //WICHTIG, bevor man irgendetwas hier erstellen/nutzen kann, MUSS WSAStartup() einmal aufgerufen werden!
 //Und am Ende natürlich dann auch wieder WSACleanup()
 
+#define INVALID_SOCKET2 18446744073709551615ULL
+
 struct UDPServer{
     SOCKET socket;
     sockaddr_in receiver;
@@ -170,7 +172,8 @@ ErrCode listenTCPConnection(TCPConnection& conn, DWORD timeoutMillis = 100)noexc
         if(WSAGetLastError() == WSAEWOULDBLOCK) return SUCCESS;
         return ErrCheck(GENERIC_ERROR, "TCP Connection Listen neuer Socket");
     }
-    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte Socketoptionen nicht setzen");
+    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte SO_RCVTIMEO Socketoptionen nicht setzen");
+    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_SNDTIMEO, (char*)&timeoutMillis, sizeof(DWORD)) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Konnte SO_SNDTIMEO Socketoptionen nicht setzen");
     return SUCCESS;
 }
 
@@ -179,6 +182,9 @@ ErrCode connectTCPConnection(TCPConnection& conn, const char* ip, u_short port, 
     conn.transferSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(conn.transferSocket == INVALID_SOCKET) return ErrCheck(GENERIC_ERROR, "Konnte Socket nicht erstellen");
 
+    std::cout << INVALID_SOCKET << std::endl;
+    std::cout << ip << ":" << port << std::endl;
+
     sockaddr_in targetAddr = {};
     targetAddr.sin_family = AF_INET;
     targetAddr.sin_port = htons(port);
@@ -186,8 +192,14 @@ ErrCode connectTCPConnection(TCPConnection& conn, const char* ip, u_short port, 
 
     u_long mode = 1;
     ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+    int opt = 1;
+    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == SOCKET_ERROR){
+        std::cout << "WSA Error: " << WSAGetLastError() << std::endl;
+        return ErrCheck(GENERIC_ERROR, "Konnte SO_REUSEADDR Socketoptionen nicht setzen");
+    }
 
     if(connect(conn.transferSocket, (sockaddr*)&targetAddr, sizeof(targetAddr)) == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK){
+        std::cout << "WSA Error: " << WSAGetLastError() << std::endl;
         if(closesocket(conn.transferSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Listening Socket schließen");
         conn.transferSocket = INVALID_SOCKET;
         return GENERIC_ERROR;
