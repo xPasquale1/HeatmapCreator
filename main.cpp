@@ -506,7 +506,7 @@ ErrCode decSearchRadius(void*)noexcept{
 
 ErrCode requestScan(void*)noexcept{
     if(sendMessagecodeTCPConnection(tcpConnection, REQUEST_AVG, nullptr, 0) == SOCKET_ERROR){
-        std::cerr << WSAGetLastError() << std::endl;
+        addPopupText(popupText, "Request Scan fehgeschlagen!");
         return GENERIC_ERROR;
     }
     return SUCCESS;
@@ -523,7 +523,7 @@ ErrCode setScanCount(void* input)noexcept{
 ErrCode requestScans(void*)noexcept{
     char* buffer = (char*)&scanCount;
     if(sendMessagecodeTCPConnection(tcpConnection, REQUEST_SCANS, buffer, 2) == SOCKET_ERROR){
-        std::cerr << WSAGetLastError() << std::endl;
+        addPopupText(popupText, "Request Scans fehgeschlagen!");
         return GENERIC_ERROR;
     }
     return SUCCESS;
@@ -533,13 +533,19 @@ ErrCode sendRouterName(void* input)noexcept{
     TextInput& textInput = *(TextInput*)input;
     if(textInput.text.size() < 1) return SUCCESS;
     char buffer[textInput.text.size()];
-    if(sendMessagecodeTCPConnection(tcpConnection, ADD_ROUTER, textInput.text.c_str(), textInput.text.size()) == SOCKET_ERROR) return GENERIC_ERROR;
+    if(sendMessagecodeTCPConnection(tcpConnection, ADD_ROUTER, textInput.text.c_str(), textInput.text.size()) == SOCKET_ERROR){
+        addPopupText(popupText, "Router hinzufügen fehgeschlagen!");
+        return GENERIC_ERROR;
+    }
     textInput.text.clear();
     return SUCCESS;
 }
 
 ErrCode resetRouters(void*)noexcept{
-    if(sendMessagecodeTCPConnection(tcpConnection, RESET_ROUTERS, nullptr, 0) <= 0) return GENERIC_ERROR;
+    if(sendMessagecodeTCPConnection(tcpConnection, RESET_ROUTERS, nullptr, 0) == SOCKET_ERROR){
+        addPopupText(popupText, "Router zurücksetzen fehgeschlagen!");
+        return GENERIC_ERROR;
+    }
     return SUCCESS;
 }
 
@@ -547,7 +553,10 @@ ErrCode setEspIP(void* input)noexcept{
     TextInput& textInput = *(TextInput*)input;
     if(textInput.text.size() < 1) return SUCCESS;
     // changeUDPServerDestination(mainServer, textInput.text.c_str(), 4984);
-    if(connectTCPConnection(tcpConnection, textInput.text.c_str(), 4984, 1000) != SUCCESS) addPopupText(popupText, "Konnte keine Verbindung zum ESP herstellen!");
+    if(connectTCPConnection(tcpConnection, textInput.text.c_str(), 4984, 1000) != SUCCESS){
+        addPopupText(popupText, "Konnte keine Verbindung zum ESP herstellen!");
+        return GENERIC_ERROR;
+    }
     textInput.text.clear();
     return SUCCESS;
 }
