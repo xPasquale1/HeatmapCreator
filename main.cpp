@@ -78,17 +78,25 @@ WORD inputCount = 0;
 
 Image floorplan;
 
+struct Timeout{
+    Timer timer;
+    bool timeoutPending = false;
+};
+
+Timeout timeout;
+
 LRESULT CALLBACK mainWindowCallback(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 //Fügt einen neuen globalen Datepunkt hinzu, sollte es diesen nicht schon bereits an der Position geben
-void changeDatapoint(BYTE* rssi, WORD x, WORD y){
+void changeDatapoint(BYTE* rssi, WORD x, WORD y, BYTE rssiCount){
     Datapoint* datapoint = (Datapoint*)searchHashmap(datapoints, coordinatesToKey(x, y));
     if(!datapoint){
         datapoint = new Datapoint;
         datapoint->x = x;
         datapoint->y = y;
-        for(BYTE i=0; i < HEATMAPCOUNT; ++i) datapoint->rssi[i] = rssi[i];
     }
+    if(rssiCount > HEATMAPCOUNT) rssiCount = HEATMAPCOUNT;
+    for(BYTE i=0; i < rssiCount; ++i) datapoint->rssi[i] = rssi[i];
     insertHashmap(datapoints, coordinatesToKey(x, y), datapoint);
 }
 
@@ -110,55 +118,83 @@ void processNetworkPackets()noexcept{
     while(1){
         if(!running) break;
         if(listenTCPConnection(tcpConnection) != SUCCESS) continue;
-        int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer));
-        if(length > 0){
-            switch((BYTE)buffer[0]){
+        tcpConnection.transferMutex.lock();
+        if(tcpConnection.transferSocket != INVALID_SOCKET){
+            tcpConnection.transferMutex.unlock();
+            circles.push_back({10, 10, 8, 0, RGBA(0, 255, 0)});
+            if(getTimerMillis(timeout.timer) > 3000 && !timeout.timeoutPending){
+                if(sendMessagecodeTCPConnection(tcpConnection, ALIVE_REQ, nullptr, 0) == SOCKET_ERROR){
+                    ErrCheck(GENERIC_ERROR, "Konnte REQ nicht senden");
+                    disconnectTCPConnection(tcpConnection);
+                    continue;
+                };
+            }
+            if(getTimerMillis(timeout.timer) > 6000){
+                addPopupText(popupText, "ESP antwortet nicht mehr!");
+                disconnectTCPConnection(tcpConnection);
+                continue;
+            }
+        }else{
+            tcpConnection.transferMutex.unlock();
+            timeout.timeoutPending = false;
+            resetTimer(timeout.timer);
+        }
+        int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer), 10);
+        if(length == -2) addPopupText(popupText, "ESP hat die Verbindung getrennt!");
+        int idx = 0;
+        while(length > 0){
+            switch((BYTE)buffer[idx]){
                 case SEND_SIGNALSTRENGTH:{
-                    for(int i=1; i < length; ++i){
-                        if(i > HEATMAPCOUNT) break;
-                        buffer[i] = -buffer[i];         //Forme die RSSI-Werte vom Negativen ins Positive um
-                        if(buffer[i] == 0){
-                            buffer[i] = MAXDB;
+                    BYTE count = buffer[idx+1];
+                    for(int i=0; i < count; ++i){
+                        if(i >= HEATMAPCOUNT) break;
+                        buffer[idx+2+i] = -buffer[idx+2+i];         //Forme die RSSI-Werte vom Negativen ins Positive um
+                        if(buffer[idx+2+i] == 0){
+                            buffer[idx+2+i] = MAXDB;
                             addPopupText(popupText, std::string("Netzwerk " + std::to_string(i) + " wurde nicht aufgezeichnet!"));
-                            ErrCheck(GENERIC_ERROR, std::string("Netzwerk " + std::to_string(i) + " wurde nicht aufgezeichnet!").c_str());
                         }
                         switch(mode){
                             case DISPLAYMODE:
                             case HEATMAPMODE:{
-                                rssiData[i-1].push_back(buffer[i]);
+                                rssiData[i].push_back(buffer[idx+2+i]);
                                 break;
                             }
                             case SEARCHMODE:{
-                                BYTE color = rssiToColorComponent(buffer[i]);
-                                searchColor[i-1] = RGBA(color, 255-color, 1);
+                                BYTE color = rssiToColorComponent(buffer[idx+2+i]);
+                                searchColor[i] = RGBA(color, 255-color, 1);
                                 break;
                             }
                         }
                     }
-                    if(mode == HEATMAPMODE) changeDatapoint((BYTE*)(buffer+1), gx, gy);
+                    if(mode == HEATMAPMODE) changeDatapoint((BYTE*)(buffer+idx+2), gx, gy, count);
                     blink = 8;
+                    idx += 2+count;
+                    length -= 2+count;
                     break;
                 }
                 case ACK:{
                     addPopupText(popupText, std::string("ACK bekommen!"));
+                    idx++;
+                    length--;
                     break;
                 }
-                case SEND_STATUS:{
-                    in_addr ip;
-                    WORD port = 0;
-                    memcpy(&ip.S_un.S_addr, buffer+1, 4);
-                    memcpy(&port, buffer+5, 2);
-                    BYTE ssidCount = buffer[8];
-                    addPopupText(popupText, std::string("Ziel IP: ") + std::string(inet_ntoa(ip)));
-                    addPopupText(popupText, std::string("Ziel Port: " + std::to_string(port)));
-                    DWORD offset = 9;
-                    // while(1){
-
-                    // }
+                case ALIVE_ACK:{
+                    resetTimer(timeout.timer);
+                    timeout.timeoutPending = false;
+                    idx++;
+                    length--;
+                    break;
+                }
+                default:{
+                    std::string msg = "Unbekannte Nachricht vom ESP erhalten ";
+                    msg += longToString(buffer[idx]);
+                    addPopupText(popupText, msg);
+                    length = 0;
                     break;
                 }
             }
         }
+        Sleep(100);  //Verhindert, dass listen, etc. den Socket zu oft Mutex locken
     }
 }
 
@@ -758,19 +794,19 @@ ScreenVec findCluster(Image& distanceImage, float threshold){
             distanceImage.data[coord.second*distanceImage.width+coord.first] = color;
         }
     }
-    QWORD x = 0;
-    QWORD y = 0;
+    float x = 0;
+    float y = 0;
     if(maxClusterIndex != 0xFFFF){
         std::vector<std::pair<WORD, WORD>>& cluster = clusters[maxClusterIndex];
         for(DWORD i=0; i < cluster.size(); ++i){
             x += cluster[i].first;
             y += cluster[i].second;
         }
-        x = (x*(window.windowWidth-200))/distanceImage.width/cluster.size();
-        y = (y*window.windowHeight)/distanceImage.height/cluster.size();
+        x = x/cluster.size();
+        y = y/cluster.size();
     }
 
-    return {(WORD)x, (WORD)y};
+    return {(WORD)(x*floorplan.width/DATAPOINTRESOLUTIONX), (WORD)(y*floorplan.height/DATAPOINTRESOLUTIONY)};
 }
 
 ScreenVec calculateFinalPosition(Image& distanceImage){
@@ -787,13 +823,16 @@ ScreenVec calculateFinalPosition(Image& distanceImage){
             else if(val == maxVal) positions.push_back({x, y});
         }
     }
-    QWORD x = 0;
-    QWORD y = 0;
+    //Bildet den AVG aller maximalen Positionen
+    float x = 0;
+    float y = 0;
     for(size_t i=0; i < positions.size(); ++i){
         x += positions[i].x;
         y += positions[i].y;
     }
-    return {(WORD)((x*(window.windowWidth-200))/distanceImage.width/positions.size()), (WORD)((y*window.windowHeight)/distanceImage.height/positions.size())};
+    x /= positions.size();
+    y /= positions.size();
+    return {(WORD)(x*floorplan.width/DATAPOINTRESOLUTIONX), (WORD)(y*floorplan.height/DATAPOINTRESOLUTIONY)};
 }
 
 ErrCode loadPng(const char* filename, Image& image)noexcept{
@@ -888,6 +927,15 @@ ErrCode loadLayout(void*)noexcept{
     return loadPng(ofn.lpstrFile, floorplan);
 }
 
+ErrCode disconnect(void*)noexcept{
+    if(disconnectTCPConnection(tcpConnection) != SUCCESS){
+        addPopupText(popupText, "Disconnect fehlgeschlagen!");
+        return GENERIC_ERROR;
+    }
+    addPopupText(popupText, "Disconnect erfolgreich!");
+    return SUCCESS;
+}
+
 ErrCode changeMode(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
     ++mode;
@@ -946,10 +994,18 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[7].pos = buttonPos;
             buttons[7].size = buttonSize;
             buttons[7].color = RGBA(0, 140, 40);
-            buttons[7].text = "RSSI Anfrage";
+            buttons[7].text = "AVG RSSI Anfrage";
             buttons[7].event = requestScan;
             buttons[7].data = &buttons[7];
-            buttons[7].textsize = 26;
+            buttons[7].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[8].pos = buttonPos;
+            buttons[8].size = buttonSize;
+            buttons[8].color = RGBA(0, 140, 40);
+            buttons[8].text = "x RSSI Anfrage";
+            buttons[8].event = requestScans;
+            buttons[8].data = &buttons[8];
+            buttons[8].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             inputs[0].pos = buttonPos;
             inputs[0].size = buttonSize;
@@ -974,19 +1030,19 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             // inputs[2].data = &inputs[2];
             // setTextInputFlag(inputs[2], TEXTCENTERED);
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
-            buttons[8].pos = buttonPos;
-            buttons[8].size = buttonSize;
-            buttons[8].color = RGBA(120, 120, 120);
-            buttons[8].text = "Reset Router";
-            buttons[8].event = resetRouters;
-            buttons[8].textsize = 24;
-            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[9].pos = buttonPos;
             buttons[9].size = buttonSize;
             buttons[9].color = RGBA(120, 120, 120);
-            buttons[9].text = "Layout laden";
-            buttons[9].event = loadLayout;
+            buttons[9].text = "Reset Router";
+            buttons[9].event = resetRouters;
             buttons[9].textsize = 24;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[10].pos = buttonPos;
+            buttons[10].size = buttonSize;
+            buttons[10].color = RGBA(120, 120, 120);
+            buttons[10].text = "Layout laden";
+            buttons[10].event = loadLayout;
+            buttons[10].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             inputs[2].pos = buttonPos;
             inputs[2].size = buttonSize;
@@ -995,7 +1051,14 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[2].event = setScanCount;
             inputs[2].data = &inputs[2];
             setTextInputFlag(inputs[2], TEXTCENTERED);
-            buttonCount = 10;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[11].pos = buttonPos;
+            buttons[11].size = buttonSize;
+            buttons[11].color = RGBA(120, 120, 120);
+            buttons[11].text = "Verbindung trennen";
+            buttons[11].event = disconnect;
+            buttons[11].textsize = 20;
+            buttonCount = 12;
             inputCount = 3;
             break;
         }
@@ -1043,33 +1106,41 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[6].pos = buttonPos;
             buttons[6].size = buttonSize;
             buttons[6].color = RGBA(0, 140, 40);
-            buttons[6].text = "RSSI Anfrage";
+            buttons[6].text = "AVG RSSI Anfrage";
             buttons[6].event = requestScan;
             buttons[6].data = &buttons[6];
-            buttons[6].textsize = 26;
+            buttons[6].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[7].pos = buttonPos;
             buttons[7].size = buttonSize;
-            buttons[7].color = RGBA(120, 120, 120);
-            buttons[7].text = "Max-Methode";
-            buttons[7].event = setSearchMethod;
+            buttons[7].color = RGBA(0, 140, 40);
+            buttons[7].text = "x RSSI Anfrage";
+            buttons[7].event = requestScan;
             buttons[7].data = &buttons[7];
-            buttons[7].textsize = 23;
+            buttons[7].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[8].pos = buttonPos;
             buttons[8].size = buttonSize;
             buttons[8].color = RGBA(120, 120, 120);
-            buttons[8].text = "Simulation aus";
-            buttons[8].event = toggleSimulation;
+            buttons[8].text = "Max-Methode";
+            buttons[8].event = setSearchMethod;
             buttons[8].data = &buttons[8];
-            buttons[8].textsize = 22;
+            buttons[8].textsize = 23;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[9].pos = buttonPos;
             buttons[9].size = buttonSize;
             buttons[9].color = RGBA(120, 120, 120);
-            buttons[9].text = "Reset Router";
-            buttons[9].event = resetRouters;
-            buttons[9].textsize = 26;
+            buttons[9].text = "Simulation aus";
+            buttons[9].event = toggleSimulation;
+            buttons[9].data = &buttons[9];
+            buttons[9].textsize = 22;
+            buttonPos.y += buttonSize.y+buttonSize.y*0.125;
+            buttons[10].pos = buttonPos;
+            buttons[10].size = buttonSize;
+            buttons[10].color = RGBA(120, 120, 120);
+            buttons[10].text = "Reset Router";
+            buttons[10].event = resetRouters;
+            buttons[10].textsize = 26;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             inputs[0].pos = buttonPos;
             inputs[0].size = buttonSize;
@@ -1085,7 +1156,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             inputs[1].event = setScanCount;
             inputs[1].data = &inputs[1];
             setTextInputFlag(inputs[1], TEXTCENTERED);
-            buttonCount = 10;
+            buttonCount = 11;
             inputCount = 2;
             break;
         }
@@ -1104,7 +1175,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[2].pos = buttonPos;
             buttons[2].size = buttonSize;
             buttons[2].color = RGBA(0, 140, 40);
-            buttons[2].text = "Avg RSSI Anfrage";
+            buttons[2].text = "AVG RSSI Anfrage";
             buttons[2].event = requestScan;
             buttons[2].data = &buttons[2];
             buttons[2].textsize = 24;
@@ -1112,7 +1183,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[3].pos = buttonPos;
             buttons[3].size = buttonSize;
             buttons[3].color = RGBA(0, 140, 40);
-            buttons[3].text = "10x RSSI Anfrage";
+            buttons[3].text = "x RSSI Anfrage";
             buttons[3].event = requestScans;
             buttons[3].data = &buttons[3];
             buttons[3].textsize = 24;
@@ -1160,14 +1231,36 @@ ErrCode changeMode(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
+ScreenVec windowPosToLayoutPos(ScreenVec pos) noexcept {
+    float layoutScale = min(float(window.windowWidth - 200) / floorplan.width, float(window.windowHeight) / floorplan.height);
+    WORD scaledWidth = floorplan.width * layoutScale;
+    WORD scaledHeight = floorplan.height * layoutScale;
+    WORD offsetX = ((window.windowWidth - 200) - scaledWidth) / 2;
+    WORD offsetY = (window.windowHeight - scaledHeight) / 2;
+    WORD imageX = (WORD)((pos.x - 200 - offsetX) / layoutScale);
+    WORD imageY = (WORD)((pos.y - offsetY) / layoutScale);
+    return {imageX, imageY};
+}
+
+ScreenVec layoutPosToWindowPos(ScreenVec pos)noexcept{
+    float layoutScale = min(float(window.windowWidth - 200) / floorplan.width, float(window.windowHeight) / floorplan.height);
+    WORD scaledWidth = floorplan.width * layoutScale;
+    WORD scaledHeight = floorplan.height * layoutScale;
+    WORD offsetX = ((window.windowWidth - 200) - scaledWidth) / 2;
+    WORD offsetY = (window.windowHeight - scaledHeight) / 2;
+    WORD imageX = (WORD)(pos.x * layoutScale + 200 + offsetX);
+    WORD imageY = (WORD)(pos.y * layoutScale + offsetY);
+    return {imageX, imageY};
+}
+
 INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int nCmdShow){    
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0){
-        return ErrCheck(GENERIC_ERROR, "WSAstartup");
+        return ErrCheck(GENERIC_ERROR, "WSAStartup");
     }
     
     if(ErrCheck(createHashmap(datapoints), "Hashmap der Datenpunkte anlegen") != SUCCESS) return -1;
-    if(ErrCheck(createTCPConnection(tcpConnection, 4985), "TCP Connection erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createTCPConnection(tcpConnection, 4984), "TCP Connection erstellen") != SUCCESS) return -1;
     RECT workArea;
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
@@ -1181,6 +1274,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
 
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
+    resetTimer(timeout.timer);
     std::thread getStrengthThread(processNetworkPackets);
 
     ScreenVec buttonSize = {180, 60};
@@ -1231,7 +1325,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     displayHistoryLength.maxValue = 20000;
     displayHistoryLength.value = displayHistoryLength.minValue;
 
-    glEnable(GL_BLEND);     //TODO Könnte man nur dann anschalten wenn man es nutzt und nicht immer (Grade für Font rendering wird es langsamer sein)
+    glEnable(GL_BLEND);     //TODO Könnte man nur dann anschalten wenn man es nutzt und nicht immer
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     while(running){
@@ -1243,6 +1337,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         clearWindow(window);
 
         ScreenVec predictedPosition;
+        float layoutScale = 1;
+        WORD offsetX = 0;
+        WORD offsetY = 0;
         switch(mode){
             case SEARCHMODE:{
                 calculateDistanceImage(heatmapsInterpolated, distanceImage, showHeatmapIdx);
@@ -1257,34 +1354,25 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 }
                 updateSlider(window, thresholdSilder, font, rectangles, circles, chars);
                 predictedPosition = (searchMethod == SEARCHMETHOD::MAXIMUM ? calculateFinalPosition(distanceImage) : findCluster(distanceImage, thresholdSilder.value));
-                WORD minSize = floorplan.height;
-                if(floorplan.width < minSize){
-                    float factor = (float)floorplan.width/floorplan.height * (window.windowWidth-200)/window.windowHeight;
-                    WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
-                    drawImage(window, distanceImage, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
-                    drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
-                    WORD size = font.pixelSize;
-                    font.pixelSize = 20;
-                    circles.push_back({(WORD)(predictedPosition.x*factor+200+offset), predictedPosition.y, 5, 0, RGBA(255, 255, 255)});
-                    drawFontStringCentered(window, font, chars, "Berechnete Position", predictedPosition.x*factor+200+offset, predictedPosition.y+10);
-                    font.pixelSize = size;
-                }
-                else{
-                    float factor = (float)floorplan.height/floorplan.width * (window.windowWidth-200)/window.windowHeight;
-                    WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
-                    drawImage(window, distanceImage, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
-                    drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
-                    WORD size = font.pixelSize;
-                    font.pixelSize = 20;
-                    circles.push_back({(WORD)(predictedPosition.x+200), (WORD)(predictedPosition.y*factor+offset), 5, 0, RGBA(255, 255, 255)});
-                    drawFontStringCentered(window, font, chars, "Berechnete Position", predictedPosition.x+200, predictedPosition.y*factor+offset+10);
-                    font.pixelSize = size;
-                }
+                layoutScale = min(float(window.windowWidth-200)/floorplan.width, float(window.windowHeight)/floorplan.height);
+                WORD scaledWidth = floorplan.width*layoutScale;
+                WORD scaledHeight = floorplan.height*layoutScale;
+                offsetX = ((window.windowWidth-200)-scaledWidth)/2;
+                offsetY = (window.windowHeight-scaledHeight)/2;
+                drawImage(window, distanceImage, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
+                drawImage(window, floorplan, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
+                WORD size = font.pixelSize;
+                font.pixelSize = 20;
+                ScreenVec predPos = layoutPosToWindowPos(predictedPosition);
+                circles.push_back({predPos.x, predPos.y, 5, 0, RGBA(255, 255, 255)});
+                drawFontStringCentered(window, font, chars, "Berechnete Position", predPos.x, predPos.y+10);
+                font.pixelSize = size;
                 if(realEspPositionSet){
-                    circles.push_back({realEspPosition.x, realEspPosition.y, 8, 0, RGBA(200, 60, 60)});
+                    ScreenVec pos = layoutPosToWindowPos(realEspPosition);
+                    circles.push_back({pos.x, pos.y, 8, 0, RGBA(200, 60, 60)});
                     WORD size = font.pixelSize;
                     font.pixelSize = 20;
-                    drawFontStringCentered(window, font, chars, "ESP32 Position", realEspPosition.x, realEspPosition.y+10);
+                    drawFontStringCentered(window, font, chars, "ESP32 Position", pos.x, pos.y+10);
                     font.pixelSize = size;
                 }
                 break;
@@ -1311,17 +1399,12 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
                 if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
                 blink++;
-                WORD minSize = floorplan.height;
-                if(floorplan.width < minSize){
-                    float factor = (float)floorplan.width/floorplan.height * (window.windowWidth-200)/window.windowHeight;
-                    WORD offset = (window.windowWidth-window.windowWidth*factor)/2;
-                    drawImage(window, floorplan, 200+offset, 0, window.windowWidth*factor+offset, window.windowHeight);
-                }
-                else{
-                    float factor = (float)floorplan.height/floorplan.width * (window.windowWidth-200)/window.windowHeight;
-                    WORD offset = (window.windowHeight-window.windowHeight*factor)/2;
-                    drawImage(window, floorplan, 200, offset, window.windowWidth, window.windowHeight*factor+offset);
-                }
+                layoutScale = min(float(window.windowWidth-200)/floorplan.width, float(window.windowHeight)/floorplan.height);
+                WORD scaledWidth = floorplan.width*layoutScale;
+                WORD scaledHeight = floorplan.height*layoutScale;
+                offsetX = ((window.windowWidth-200)-scaledWidth)/2;
+                offsetY = (window.windowHeight-scaledHeight)/2;
+                drawImage(window, floorplan, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
                 for(BYTE i=0; i < routerPositionsCount; ++i){
                     circles.push_back({routerPositions[i].x, routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
                     std::string routerText = "Router ";
@@ -1393,7 +1476,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 selectedStrengthStringoffset += drawFontString(window, font, chars, floatToString(getHeatmapQuality(showHeatmapIdx), 3).c_str(), 30+selectedStrengthStringoffset, 10);
                 break;
             case SEARCHMODE:{
-                fvec2 diff = {(float)(realEspPosition.x - (predictedPosition.x+200)), (float)(realEspPosition.y - predictedPosition.y)};
+                fvec2 diff = {(float)(realEspPosition.x - predictedPosition.x), (float)(realEspPosition.y - predictedPosition.y)};
                 float dist = length(diff) * pixelToMeterRatio;
                 std::string distText = floatToString(dist, 3);
                 distText += 'm';
@@ -1423,12 +1506,12 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 case HEATMAPMODE:
                     if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
                         if(routerPositionsCount >= HEATMAPCOUNT) routerPositionsCount = 0;
-                        else routerPositions[routerPositionsCount++] = {mouse.x, mouse.y};
+                        else routerPositions[routerPositionsCount++] = windowPosToLayoutPos({mouse.x, mouse.y});
                     }
                     break;
                 case SEARCHMODE:
                     if(!getButton(mouse, MOUSE_PREV_RMB) && x >= 0){
-                        realEspPosition = {mouse.x, mouse.y};
+                        realEspPosition = windowPosToLayoutPos({mouse.x, mouse.y});
                         realEspPositionSet= !realEspPositionSet;
                     }
                     break;
