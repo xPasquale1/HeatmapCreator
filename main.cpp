@@ -80,7 +80,7 @@ Image floorplan;
 
 struct Timeout{
     Timer timer;
-    bool timeoutPending = false;
+    BYTE timeoutCounter = 0;
 };
 
 Timeout timeout;
@@ -109,6 +109,32 @@ BYTE colorComponentToRssi(BYTE color)noexcept{
     return color*(MAXDB-MINDB)/255+MINDB;
 }
 
+//True falls Timeout oder keine Verbindung, sonst false
+bool updateAliveStatus()noexcept{
+    tcpConnection.transferMutex.lock();
+    if(tcpConnection.transferSocket != INVALID_SOCKET){
+        tcpConnection.transferMutex.unlock();
+        circles.push_back({10, 10, 8, 0, RGBA(0, 255, 0)});
+        if(getTimerMillis(timeout.timer) > 1000){
+            timeout.timeoutCounter += 1;
+            if(sendMessagecodeTCPConnection(tcpConnection, ALIVE_REQ, nullptr, 0) == SOCKET_ERROR) ErrCheck(GENERIC_ERROR, "Konnte REQ nicht senden");
+            resetTimer(timeout.timer);
+        }
+        if(timeout.timeoutCounter > 5){
+            addPopupText(popupText, "ESP antwortet nicht mehr!");
+            timeout.timeoutCounter = 0;
+            resetTimer(timeout.timer);
+            return true;
+        }
+    }else{
+        tcpConnection.transferMutex.unlock();
+        timeout.timeoutCounter = 0;
+        resetTimer(timeout.timer);
+        return true;
+    }
+    return false;
+}
+
 //TODO Fehler melden?
 
 /// @brief Öffnet den globalen Server und hört einfach ob Pakete vom esp32 ankommen und verarbeitet diese
@@ -118,26 +144,9 @@ void processNetworkPackets()noexcept{
     while(1){
         if(!running) break;
         if(listenTCPConnection(tcpConnection) != SUCCESS) continue;
-        tcpConnection.transferMutex.lock();
-        if(tcpConnection.transferSocket != INVALID_SOCKET){
-            tcpConnection.transferMutex.unlock();
-            circles.push_back({10, 10, 8, 0, RGBA(0, 255, 0)});
-            if(getTimerMillis(timeout.timer) > 3000 && !timeout.timeoutPending){
-                if(sendMessagecodeTCPConnection(tcpConnection, ALIVE_REQ, nullptr, 0) == SOCKET_ERROR){
-                    ErrCheck(GENERIC_ERROR, "Konnte REQ nicht senden");
-                    disconnectTCPConnection(tcpConnection);
-                    continue;
-                };
-            }
-            if(getTimerMillis(timeout.timer) > 6000){
-                addPopupText(popupText, "ESP antwortet nicht mehr!");
-                disconnectTCPConnection(tcpConnection);
-                continue;
-            }
-        }else{
-            tcpConnection.transferMutex.unlock();
-            timeout.timeoutPending = false;
-            resetTimer(timeout.timer);
+        if(updateAliveStatus()){
+            disconnectTCPConnection(tcpConnection);
+            continue;
         }
         int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer), 10);
         if(length == -2) addPopupText(popupText, "ESP hat die Verbindung getrennt!");
@@ -145,6 +154,7 @@ void processNetworkPackets()noexcept{
         while(length > 0){
             switch((BYTE)buffer[idx]){
                 case SEND_SIGNALSTRENGTH:{
+                    addPopupText(popupText, "Scandaten erhalten!");
                     BYTE count = buffer[idx+1];
                     for(int i=0; i < count; ++i){
                         if(i >= HEATMAPCOUNT) break;
@@ -180,7 +190,7 @@ void processNetworkPackets()noexcept{
                 }
                 case ALIVE_ACK:{
                     resetTimer(timeout.timer);
-                    timeout.timeoutPending = false;
+                    timeout.timeoutCounter = 0;
                     idx++;
                     length--;
                     break;
@@ -545,6 +555,7 @@ ErrCode requestScan(void*)noexcept{
         addPopupText(popupText, "Request Scan fehgeschlagen!");
         return GENERIC_ERROR;
     }
+    disconnectTCPConnection(tcpConnection);
     return SUCCESS;
 }
 
@@ -562,6 +573,7 @@ ErrCode requestScans(void*)noexcept{
         addPopupText(popupText, "Request Scans fehgeschlagen!");
         return GENERIC_ERROR;
     }
+    disconnectTCPConnection(tcpConnection);
     return SUCCESS;
 }
 
@@ -944,7 +956,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             mode = HEATMAPMODE;
         case HEATMAPMODE:{
             button->text = "Heatmap-Mode";
-            ScreenVec buttonSize = {180, 55};
+            ScreenVec buttonSize = {180, 45};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -994,7 +1006,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[7].pos = buttonPos;
             buttons[7].size = buttonSize;
             buttons[7].color = RGBA(0, 140, 40);
-            buttons[7].text = "AVG RSSI Anfrage";
+            buttons[7].text = "Avg RSSI Anfrage";
             buttons[7].event = requestScan;
             buttons[7].data = &buttons[7];
             buttons[7].textsize = 24;
@@ -1064,7 +1076,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
         }
         case SEARCHMODE:{
             button->text = "Search-Mode";
-            ScreenVec buttonSize = {180, 55};
+            ScreenVec buttonSize = {180, 45};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -1106,7 +1118,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[6].pos = buttonPos;
             buttons[6].size = buttonSize;
             buttons[6].color = RGBA(0, 140, 40);
-            buttons[6].text = "AVG RSSI Anfrage";
+            buttons[6].text = "Avg RSSI Anfrage";
             buttons[6].event = requestScan;
             buttons[6].data = &buttons[6];
             buttons[6].textsize = 24;
@@ -1115,7 +1127,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[7].size = buttonSize;
             buttons[7].color = RGBA(0, 140, 40);
             buttons[7].text = "x RSSI Anfrage";
-            buttons[7].event = requestScan;
+            buttons[7].event = requestScans;
             buttons[7].data = &buttons[7];
             buttons[7].textsize = 24;
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
@@ -1162,7 +1174,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
         }
         case DISPLAYMODE:
             button->text = "Display-Mode";
-            ScreenVec buttonSize = {180, 55};
+            ScreenVec buttonSize = {180, 45};
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
@@ -1175,7 +1187,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[2].pos = buttonPos;
             buttons[2].size = buttonSize;
             buttons[2].color = RGBA(0, 140, 40);
-            buttons[2].text = "AVG RSSI Anfrage";
+            buttons[2].text = "Avg RSSI Anfrage";
             buttons[2].event = requestScan;
             buttons[2].data = &buttons[2];
             buttons[2].textsize = 24;
@@ -1270,7 +1282,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
 
-    if(ErrCheck(loadPng("images/layoutComputerraum.png", floorplan), "Layout laden") != SUCCESS) return -1;
+    if(ErrCheck(loadPng("images/layoutS211.png", floorplan), "Layout laden") != SUCCESS) return -1;
 
     for(BYTE i=0; i < HEATMAPCOUNT; ++i) createImage(heatmapsInterpolated[i], DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
 
@@ -1288,6 +1300,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     changeMode(&buttons[0]);
 
     popupText.pos = {220, 20};
+    popupText.duration = 1000;
 
     Image distanceImage;
     createImage(distanceImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
@@ -1406,12 +1419,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 offsetY = (window.windowHeight-scaledHeight)/2;
                 drawImage(window, floorplan, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
                 for(BYTE i=0; i < routerPositionsCount; ++i){
-                    circles.push_back({routerPositions[i].x, routerPositions[i].y, 8, 0, RGBA(0, 192, 255)});
+                    ScreenVec pos = layoutPosToWindowPos(routerPositions[i]);
+                    circles.push_back({pos.x, pos.y, 8, 0, RGBA(0, 192, 255)});
                     std::string routerText = "Router ";
                     routerText += longToString(i+1);
                     WORD size = font.pixelSize;
                     font.pixelSize = 20;
-                    drawFontStringCentered(window, font, chars, routerText.c_str(), routerPositions[i].x, routerPositions[i].y+10);
+                    drawFontStringCentered(window, font, chars, routerText.c_str(), pos.x, pos.y+10);
                     font.pixelSize = size;
                 }
                 break;
