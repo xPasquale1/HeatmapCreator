@@ -220,7 +220,8 @@ ErrCode listenTCPConnection(TCPConnection& conn, DWORD timeoutMillis = 0)noexcep
     conn.transferMutex.lock();
     if(conn.transferSocket != INVALID_SOCKET){
         conn.transferMutex.unlock();
-        return SUCCESS;
+        disconnectTCPConnection(conn);
+        conn.transferMutex.lock();
     }
     conn.listeningMutex.lock();
 
