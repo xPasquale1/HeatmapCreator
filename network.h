@@ -126,12 +126,9 @@ struct TCPConnection{
     std::mutex listeningMutex;
 };
 
-ErrCode startListenSocket(TCPConnection& conn)noexcept{
+ErrCode createTCPConnection(TCPConnection& conn, u_short port)noexcept{
+    conn.port = port;
     conn.listeningMutex.lock();
-    if(conn.listeningSocket != INVALID_SOCKET){
-        conn.listeningMutex.unlock();
-        return SUCCESS;
-    }
     conn.listeningSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(conn.listeningSocket == INVALID_SOCKET){
         conn.listeningMutex.unlock();
@@ -143,8 +140,11 @@ ErrCode startListenSocket(TCPConnection& conn)noexcept{
     serverAddr.sin_port = htons(conn.port);
     serverAddr.sin_addr.S_un.S_addr = INADDR_ANY;
 
+    //TODO Fehler abfragen
     int opt = 1;
+    BOOL dontLinger = true;
     setsockopt(conn.listeningSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+    setsockopt(conn.listeningSocket, SOL_SOCKET, SO_DONTLINGER, (char*)&dontLinger, sizeof(dontLinger));
     u_long mode = 1;
     ioctlsocket(conn.listeningSocket, FIONBIO, &mode);
 
@@ -160,41 +160,15 @@ ErrCode startListenSocket(TCPConnection& conn)noexcept{
     return SUCCESS;
 }
 
-ErrCode closeListeningSocket(TCPConnection& conn)noexcept{
-    conn.listeningMutex.lock();
-    if(conn.listeningSocket != INVALID_SOCKET){
-        conn.listeningMutex.unlock();
-        return SUCCESS;
-    }
-    if(closesocket(conn.listeningSocket) == SOCKET_ERROR){
-        conn.listeningMutex.unlock();
-        return ErrCheck(GENERIC_ERROR, "Transfer Socket schließen");
-    }
-    conn.listeningSocket = INVALID_SOCKET;
-    conn.listeningMutex.unlock();
-    return SUCCESS;
-}
-
-ErrCode createTCPConnection(TCPConnection& conn, u_short port)noexcept{
-    conn.port = port;
-    return startListenSocket(conn);
-}
-
-ErrCode disconnectTCPConnection(TCPConnection& conn)noexcept{
+ErrCode disconnectTCPConnection(TCPConnection& conn, bool doShutdown = false)noexcept{
     conn.transferMutex.lock();
     if(conn.transferSocket == INVALID_SOCKET){
         conn.transferMutex.unlock();
         return SUCCESS;
     }
-    //TODO Hier kein returns bei Fehlern? Socket sollte ja dennoch geschlossen werden
-    if(shutdown(conn.transferSocket, SD_BOTH) == SOCKET_ERROR){
-        conn.transferMutex.unlock();
-        return ErrCheck(GENERIC_ERROR, "Shutdown Transfer Socket");
-    }
-    if(closesocket(conn.transferSocket) == SOCKET_ERROR){
-        conn.transferMutex.unlock();
-        return ErrCheck(GENERIC_ERROR, "Transfer Socket schließen");
-    }
+    //TODO Keine Fehler abfangen, da das nur Probleme gemacht hat
+    if(doShutdown) shutdown(conn.transferSocket, SD_BOTH);
+    closesocket(conn.transferSocket);
     conn.transferSocket = INVALID_SOCKET;
     conn.transferMutex.unlock();
     return SUCCESS;
@@ -203,7 +177,7 @@ ErrCode disconnectTCPConnection(TCPConnection& conn)noexcept{
 ErrCode destroyTCPConnection(TCPConnection& conn)noexcept{
     if(disconnectTCPConnection(conn) != SUCCESS) return GENERIC_ERROR;
     conn.listeningMutex.lock();
-    if(closesocket(conn.listeningSocket) == SOCKET_ERROR) return ErrCheck(GENERIC_ERROR, "Listening Socket schließen");
+    closesocket(conn.listeningSocket);      //TODO Wirft Fehler
     conn.listeningSocket = INVALID_SOCKET;
     conn.listeningMutex.unlock();
     return SUCCESS;
@@ -214,67 +188,53 @@ ErrCode destroyTCPConnection(TCPConnection& conn)noexcept{
 /// ist, sollte connectionOnTCPConnection genutzt werden! Falls bereits ein Client verbunden ist, wird SUCCESS
 /// zurückgegeben.
 /// @param conn 
-/// @return GENERIC_ERROR bei Fehlern, sonst SUCCESS
-ErrCode listenTCPConnection(TCPConnection& conn, DWORD timeoutMillis = 0)noexcept{
-    if(startListenSocket(conn) != SUCCESS) return ErrCheck(GENERIC_ERROR, "Konnte Listen Server nicht starten");
+/// @return -1 bei Fehlern, 0 falls keine Verbindung einging, 1 bei neuer Verbindung
+int listenTCPConnection(TCPConnection& conn)noexcept{
     conn.transferMutex.lock();
-    if(conn.transferSocket != INVALID_SOCKET){
-        conn.transferMutex.unlock();
-        disconnectTCPConnection(conn);
-        conn.transferMutex.lock();
-    }
     conn.listeningMutex.lock();
 
-    fd_set readSet;
-    FD_ZERO(&readSet);
-    FD_SET(conn.listeningSocket, &readSet);
-
-    timeval timeout;
-    timeout.tv_sec = timeoutMillis / 1000;
-    timeout.tv_usec = (timeoutMillis % 1000) * 1000;
-
-    int result = select(0, &readSet, nullptr, nullptr, &timeout);
-
-    if(result == SOCKET_ERROR){
-        conn.listeningMutex.unlock();
-        conn.transferMutex.unlock();
-        return ErrCheck(GENERIC_ERROR, "TCP Connection listen accept Fehler");
+    sockaddr receiver;
+    int clientSize = sizeof(receiver);
+    SOCKET lastValidConnection = INVALID_SOCKET;
+    while(1){
+        SOCKET tmp = accept(conn.listeningSocket, &receiver, &clientSize);
+        if(tmp == INVALID_SOCKET){
+            int wsaErr = WSAGetLastError();
+            if(wsaErr != WSAEWOULDBLOCK){
+                ErrCheck(GENERIC_ERROR, "Fehler bei accept");   //TODO Sollte man hier den listening Socket schließen?
+                conn.listeningMutex.unlock();
+                conn.transferMutex.unlock();
+                return -1;
+            }
+            break;
+        }
+        lastValidConnection = tmp;
     }
-    if(result > 0 && FD_ISSET(conn.listeningSocket, &readSet)){
-        sockaddr receiver;
-        int clientSize = sizeof(receiver);
-        conn.transferSocket = accept(conn.listeningSocket, &receiver, &clientSize);
-        if(conn.transferSocket == INVALID_SOCKET){
-            conn.listeningMutex.unlock();
-            conn.transferMutex.unlock();
-            return ErrCheck(GENERIC_ERROR, "TCP Connection Listen neuer Socket");
-        }
-        u_long mode = 1;
-        ioctlsocket(conn.transferSocket, FIONBIO, &mode);
-        int opt = 1;
-        if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == SOCKET_ERROR){
-            conn.listeningMutex.unlock();
-            conn.transferMutex.unlock();
-            return ErrCheck(GENERIC_ERROR, "Konnte SO_REUSEADDR Socketoptionen nicht setzen");
-        }
-        if(setsockopt(conn.transferSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) == SOCKET_ERROR){
-            conn.listeningMutex.unlock();
-            conn.transferMutex.unlock();
-            return ErrCheck(GENERIC_ERROR, "Konnte SO_REUSEADDR Socketoptionen nicht setzen");
-        }
-        ErrCheck(SUCCESS, "Eine Verbindung ging ein!");
+    if(lastValidConnection == INVALID_SOCKET){
         conn.listeningMutex.unlock();
         conn.transferMutex.unlock();
-        ErrCheck(closeListeningSocket(conn), "Listening Socket schließen");
-        return SUCCESS;
+        return 0;
+    }
+    conn.transferSocket = lastValidConnection;
+    u_long mode = 1;
+    ioctlsocket(conn.transferSocket, FIONBIO, &mode);
+    int opt = 1;
+    if(setsockopt(conn.transferSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt)) == SOCKET_ERROR){
+        conn.listeningMutex.unlock();
+        conn.transferMutex.unlock();
+        return -1;
+    }
+    if(setsockopt(conn.transferSocket, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt)) == SOCKET_ERROR){
+        conn.listeningMutex.unlock();
+        conn.transferMutex.unlock();
+        return -1;
     }
     conn.listeningMutex.unlock();
     conn.transferMutex.unlock();
-    return SUCCESS;
+    return 1;
 }
 
-//TODO Teste, ob aktuelle Verbindung bereits die Richtige ist anstatt immer disconnect zu machen
-//TODO Error checks für closesocket
+//TODO Neu schreiben, nicht nutzen...
 ErrCode connectTCPConnection(TCPConnection& conn, const char* ip, u_short port, DWORD timeoutMillis = 100)noexcept{
     if(disconnectTCPConnection(conn) != SUCCESS) return GENERIC_ERROR;
     conn.transferMutex.lock();
@@ -351,66 +311,33 @@ ErrCode connectTCPConnection(TCPConnection& conn, const char* ip, u_short port, 
 /// @param conn 
 /// @param buffer 
 /// @param bufferSize 
-/// @return > 0 bei Erfolg, 0 keine Verbindung existiert/timeout, -2 falls Verbindung korrekt geschlossen worden ist,
+/// @return > 0 bei Erfolg, 0 Verbindung geschlossen, -1 Fehler, sonst -2
 /// sonst SOCKET_ERROR
-int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize, DWORD timeoutMillis = 0) noexcept {
+int receiveTCPConnection(TCPConnection& conn, char* buffer, int bufferSize)noexcept{
     conn.transferMutex.lock();
     if(conn.transferSocket == INVALID_SOCKET){
         conn.transferMutex.unlock();
-        return 0;
+        return -2;
     }
 
-    fd_set readSet;
-    FD_ZERO(&readSet);
-    FD_SET(conn.transferSocket, &readSet);
-
-    timeval timeout;
-    timeout.tv_sec = timeoutMillis / 1000;
-    timeout.tv_usec = (timeoutMillis % 1000) * 1000;
-
-    int result = select(0, &readSet, nullptr, nullptr, &timeout);
-
-    if(result == SOCKET_ERROR){     //Select Fehler
-        conn.transferMutex.unlock();
-        std::string msg = "Recv select Error ";
-        msg += std::to_string(WSAGetLastError());
-        return ErrCheck(GENERIC_ERROR, msg.c_str());
-    }
-
-    if(result == 0){    //Timeout
-        conn.transferMutex.unlock();
-        return 0;
-    }
-
-    if(FD_ISSET(conn.transferSocket, &readSet)){    //Select erfolgreich
-        int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
-        if(ret == SOCKET_ERROR){    //Fehler -> Socket schließen
-            if(closesocket(conn.transferSocket) == SOCKET_ERROR){
-                conn.transferMutex.unlock();
-                return ErrCheck(GENERIC_ERROR, "Recv transfer socket schließen Fehler");
-            }
-            conn.transferSocket = INVALID_SOCKET;
-            conn.transferMutex.unlock();
+    int ret = recv(conn.transferSocket, buffer, bufferSize, 0);
+    if(ret == SOCKET_ERROR){
+        int wsaErr = WSAGetLastError();
+        if(wsaErr != WSAEWOULDBLOCK){
             std::string msg = "Recv Error ";
-            msg += std::to_string(WSAGetLastError());
-            return ErrCheck(GENERIC_ERROR, msg.c_str());
-        }else if(ret == 0){     //Verbindung soll geschlossen werden
-            if(closesocket(conn.transferSocket) == SOCKET_ERROR){
-                conn.transferMutex.unlock();
-                return ErrCheck(GENERIC_ERROR, "Recv transfer socket schließen Fehler");
-            }
+            msg += std::to_string(wsaErr);
+            closesocket(conn.transferSocket);   //TODO Informiert den anderen nicht, dass die Verbindung beendet wurde
             conn.transferSocket = INVALID_SOCKET;
             conn.transferMutex.unlock();
-            ErrCheck(SUCCESS, "Verbindung sauber geschlossen");
-            return -2;
+            ErrCheck(GENERIC_ERROR, msg.c_str());
+            return SOCKET_ERROR;
         }
-
         conn.transferMutex.unlock();
-        return ret;
+        return -2;
     }
 
     conn.transferMutex.unlock();
-    return 0;
+    return ret;
 }
 
 //TODO Nutzt kein select, da der Sendpuffer eigentlich nie voll sein sollte bei so kleinen Nachrichten

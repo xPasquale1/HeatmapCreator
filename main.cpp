@@ -37,9 +37,9 @@ ScreenVec routerPositions[HEATMAPCOUNT];
 ScreenVec realEspPosition;
 BYTE routerPositionsCount = 0;
 bool realEspPositionSet = false;
-float pixelToMeterRatio = 0.02;
+float pixelToMeterRatio = 0.0078;
 
-DWORD scanCount = 10;
+DWORD scanCount = 1;
 
 PopupText popupText;
 
@@ -143,13 +143,21 @@ void processNetworkPackets()noexcept{
     char buffer[1024];
     while(1){
         if(!running) break;
-        if(listenTCPConnection(tcpConnection) != SUCCESS) continue;
+        Sleep(20);  //Verhindert, dass listen, etc. den Socket zu oft Mutex locken
+        if(listenTCPConnection(tcpConnection) != 0){
+            resetTimer(timeout.timer);
+            timeout.timeoutCounter = 0;
+            continue;
+        }
         if(updateAliveStatus()){
             disconnectTCPConnection(tcpConnection);
             continue;
         }
-        int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer), 10);
-        if(length == -2) addPopupText(popupText, "ESP hat die Verbindung getrennt!");
+        int length = receiveTCPConnection(tcpConnection, buffer, sizeof(buffer));
+        if(length == 0){
+            addPopupText(popupText, "ESP hat die Verbindung getrennt!");
+            disconnectTCPConnection(tcpConnection);
+        }
         int idx = 0;
         while(length > 0){
             switch((BYTE)buffer[idx]){
@@ -204,7 +212,6 @@ void processNetworkPackets()noexcept{
                 }
             }
         }
-        Sleep(100);  //Verhindert, dass listen, etc. den Socket zu oft Mutex locken
     }
 }
 
@@ -1391,7 +1398,12 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                 break;
             }
             case HEATMAPMODE:{
-                if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200, 0, window.windowWidth, window.windowHeight);
+                layoutScale = min(float(window.windowWidth-200)/floorplan.width, float(window.windowHeight)/floorplan.height);
+                WORD scaledWidth = floorplan.width*layoutScale;
+                WORD scaledHeight = floorplan.height*layoutScale;
+                offsetX = ((window.windowWidth-200)-scaledWidth)/2;
+                offsetY = (window.windowHeight-scaledHeight)/2;
+                if(showHeatmap) drawImage(window, heatmapsInterpolated[showHeatmapIdx], 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
                 else{
                     Image dataPointsImage;
                     createImage(dataPointsImage, DATAPOINTRESOLUTIONX, DATAPOINTRESOLUTIONY);
@@ -1405,18 +1417,13 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                         color = rssiToColorComponent(color);
                         dataPointsImage.data[dataPoint.y*DATAPOINTRESOLUTIONX+dataPoint.x] = RGBA(color, 255-color, 0);
                     }
-                    drawImage(window, dataPointsImage, 200, 0, window.windowWidth, window.windowHeight);
+                    drawImage(window, dataPointsImage, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
                     destroyImage(dataPointsImage);
                 }
-                WORD tileSizeX = (window.windowWidth-200)/DATAPOINTRESOLUTIONX;
-                WORD tileSizeY = window.windowHeight/DATAPOINTRESOLUTIONY;
-                if(blink%32 < 8) rectangles.push_back({(WORD)((window.windowWidth-200)*gx/DATAPOINTRESOLUTIONX+200), (WORD)(window.windowHeight*gy/DATAPOINTRESOLUTIONY), tileSizeX, tileSizeY, RGBA(0, 0, 255)});
+                ScreenVec point = {(WORD)(((float)gx*floorplan.width)/DATAPOINTRESOLUTIONX), (WORD)(((float)gy*floorplan.height)/DATAPOINTRESOLUTIONY)};
+                point = layoutPosToWindowPos(point);
+                if(blink%32 < 8) circles.push_back({(WORD)(point.x+3), (WORD)(point.y+3), 6, 0, RGBA(0, 0, 255)});
                 blink++;
-                layoutScale = min(float(window.windowWidth-200)/floorplan.width, float(window.windowHeight)/floorplan.height);
-                WORD scaledWidth = floorplan.width*layoutScale;
-                WORD scaledHeight = floorplan.height*layoutScale;
-                offsetX = ((window.windowWidth-200)-scaledWidth)/2;
-                offsetY = (window.windowHeight-scaledHeight)/2;
                 drawImage(window, floorplan, 200+offsetX, offsetY, 200+offsetX+scaledWidth, offsetY+scaledHeight);
                 for(BYTE i=0; i < routerPositionsCount; ++i){
                     ScreenVec pos = layoutPosToWindowPos(routerPositions[i]);
@@ -1508,8 +1515,9 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             int x = mouse.x-200;
             int y = mouse.y;
             if(x >= 0){
-                gx = (float)(x*DATAPOINTRESOLUTIONX)/(window.windowWidth-200);
-                gy = (float)(y*DATAPOINTRESOLUTIONY)/(window.windowHeight);
+                ScreenVec point = windowPosToLayoutPos({mouse.x, mouse.y});
+                gx = (((float)point.x)*DATAPOINTRESOLUTIONX)/floorplan.width;
+                gy = (((float)point.y)*DATAPOINTRESOLUTIONY)/floorplan.height;
                 delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
             }
         }
@@ -1576,7 +1584,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     }
     destroyHashmap(datapoints);
 
-    destroyTCPConnection(tcpConnection);
+    ErrCheck(destroyTCPConnection(tcpConnection), "Destroy TCP COnnection");
     WSACleanup();
     destroyFont(font);
     for(int i=0; i < HEATMAPCOUNT; ++i){

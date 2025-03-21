@@ -34,11 +34,14 @@ def send_tcp_message():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((host, port))
-        time.sleep(1)
-        s.sendall(message)
-        print(f"Gesendet!")
-        data = s.recv(1024)
-        print(data)
+        # time.sleep(1)
+        # s.sendall(message)
+        # print(f"Gesendet!")
+        while(1):
+            data = s.recv(1024)
+            print(data)
+            if not data:
+                break
         s.shutdown(socket.SHUT_RDWR)
         s.close()
 
