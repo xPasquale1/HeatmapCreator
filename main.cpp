@@ -109,18 +109,26 @@ BYTE colorComponentToRssi(BYTE color)noexcept{
     return color*(MAXDB-MINDB)/255+MINDB;
 }
 
+#define TIMEOUTVALUE 5
+DWORD connectionColor()noexcept{
+    float t = timeout.timeoutCounter/(float)TIMEOUTVALUE;
+    BYTE green = 255 * (1 - max(0.0f, (t - 0.5f) * 2));
+    BYTE red = 255 * min(1.0f, t * 2);
+    return RGBA(red, green, 0);
+}
+
 //True falls Timeout oder keine Verbindung, sonst false
 bool updateAliveStatus()noexcept{
     tcpConnection.transferMutex.lock();
     if(tcpConnection.transferSocket != INVALID_SOCKET){
         tcpConnection.transferMutex.unlock();
-        circles.push_back({10, 10, 8, 0, RGBA(0, 255, 0)});
+        circles.push_back({10, 10, 8, 0, connectionColor()});
         if(getTimerMillis(timeout.timer) > 1000){
             timeout.timeoutCounter += 1;
             if(sendMessagecodeTCPConnection(tcpConnection, ALIVE_REQ, nullptr, 0) == SOCKET_ERROR) ErrCheck(GENERIC_ERROR, "Konnte REQ nicht senden");
             resetTimer(timeout.timer);
         }
-        if(timeout.timeoutCounter > 5){
+        if(timeout.timeoutCounter > TIMEOUTVALUE){
             addPopupText(popupText, "ESP antwortet nicht mehr!");
             timeout.timeoutCounter = 0;
             resetTimer(timeout.timer);
@@ -136,7 +144,6 @@ bool updateAliveStatus()noexcept{
 }
 
 //TODO Fehler melden?
-
 /// @brief Öffnet den globalen Server und hört einfach ob Pakete vom esp32 ankommen und verarbeitet diese
 /// @param -
 void processNetworkPackets()noexcept{
@@ -296,10 +303,17 @@ bool triangleOverlap(WORD x11, WORD y11, WORD x12, WORD y12, WORD x13, WORD y13,
     return false;
 }
 
+struct RandomDatapoint{
+    float x = 0;
+    float y = 0;
+    BYTE rssi[HEATMAPCOUNT];
+    BYTE rssiCount = 0;
+};
+
 struct DatapointTriangle{
-    Datapoint* d1;
-    Datapoint* d2;
-    Datapoint* d3;
+    RandomDatapoint* d1;
+    RandomDatapoint* d2;
+    RandomDatapoint* d3;
 };
 
 //TODO O(n^4) brute force Delauney Umsetzung, es gibt deutlich effizientere Methoden
@@ -314,16 +328,24 @@ struct DatapointTriangle{
 /// @param count Die Anzahl der Datenpunkte
 void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datapoints, DWORD count)noexcept{
     if(count < 3) return;
+    RandomDatapoint randomDatapoints[count];
+    for(DWORD i=0; i < count; ++i){
+        randomDatapoints[i].x = datapoints[i].x+(nextrand()/4294967295.-0.5)*0.1;
+        randomDatapoints[i].y = datapoints[i].y+(nextrand()/4294967295.-0.5)*0.1;
+        for(BYTE j=0; j < HEATMAPCOUNT; ++j){
+            randomDatapoints[i].rssi[j] = datapoints[i].rssi[j];
+        }
+    }
     std::vector<DatapointTriangle> triangles;    //Hält alle Datenpunkt Dreiecke TODO kann man im vorab berechnen
 
     for(DWORD i=0; i < count; ++i){
-        Datapoint& p1 = datapoints[i];
+        RandomDatapoint& p1 = randomDatapoints[i];
         for(DWORD j=0; j < count; ++j){
             if(j == i) continue;
-            Datapoint& p2 = datapoints[j];
+            RandomDatapoint& p2 = randomDatapoints[j];
             for(DWORD k=0; k < count; ++k){
                 if(k == j || k == i) continue;
-                Datapoint& p3 = datapoints[k];
+                RandomDatapoint& p3 = randomDatapoints[k];
                 bool valid = true;
 
                 float totalArea = (p2.x-p1.x)*(p3.y-p2.y)-(p2.y-p1.y)*(p3.x-p2.x);
@@ -333,14 +355,14 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                 float midYP1P2 = (p1.y+p2.y)/2;
                 float dyP1P2 = (p2.y-p1.y);
                 float mP1P2;
-                dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e4f;
+                dyP1P2 != 0 ? mP1P2 = -(p2.x-p1.x)/dyP1P2 : mP1P2 = 1e6f;
                 float bP1P2 = midYP1P2 - mP1P2*midXP1P2;
 
                 float midXP1P3 = (p1.x+p3.x)/2;
                 float midYP1P3 = (p1.y+p3.y)/2;
                 float dyP1P3 = (p3.y-p1.y);
                 float mP1P3;
-                dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e4f;
+                dyP1P3 != 0 ? mP1P3 = -(p3.x-p1.x)/dyP1P3 : mP1P3 = 1e6f;
                 float bP1P3 = midYP1P3 - mP1P3*midXP1P3;
 
                 float centerX = (bP1P3-bP1P2)/(mP1P2-mP1P3);
@@ -348,9 +370,9 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                 float radius2 = (centerX-p1.x)*(centerX-p1.x)+(centerY-p1.y)*(centerY-p1.y);
                 for(DWORD l=0; l < count; ++l){
                     if(l == k || l == j || l == i) continue;
-                    Datapoint& p = datapoints[l];
+                    RandomDatapoint& p = randomDatapoints[l];
                     float distance2 = (centerX-p.x)*(centerX-p.x)+(centerY-p.y)*(centerY-p.y);
-                    if(distance2 <= radius2){   //Das sollte eigentlich ja < sein, aber dann gab es Lücken und so hat das bisher keine Probleme gemacht
+                    if(distance2 <= (radius2+0.001)){   //Das sollte eigentlich ja < sein, aber dann gab es Lücken und so hat das bisher keine Probleme gemacht
                         valid = false;
                         break;
                     }
@@ -369,18 +391,26 @@ void interpolateTriangulation(Image* heatmaps, BYTE heatmapIdx, Datapoint* datap
                 #ifdef VISUALIZETRIANGULATION
                 clearWindow(window);
                 for(DWORD l=0; l < count; ++l){
-                    drawRectangle(window, scaledDatapoints[l].x+200-2, scaledDatapoints[l].y-2, 4, 4, RGBA(255, 255, 255));
+                    rectangles.push_back({(WORD)(datapoints[l].x+200-2), (WORD)(datapoints[l].y-2), 4, 4, RGBA(255, 255, 255)});
                 }
                 for(size_t l=0; l < triangles.size(); ++l){
                     DatapointTriangle& tri = triangles[l];
-                    drawLine(window, tri.d1->x+200, tri.d1->y, tri.d2->x+200, tri.d2->y, RGBA(255, 255, (l+1)/triangles.size()));
-                    drawLine(window, tri.d1->x+200, tri.d1->y, tri.d3->x+200, tri.d3->y, RGBA(255, 255, (l+1)/triangles.size()));
-                    drawLine(window, tri.d3->x+200, tri.d3->y, tri.d2->x+200, tri.d2->y, RGBA(255, 255, (l+1)/triangles.size()));
+                    lines.push_back({(WORD)(tri.d1->x+200), (WORD)(tri.d1->y), (WORD)(tri.d2->x+200), (WORD)(tri.d2->y), 1, RGBA(255, 255, (l+1)/triangles.size())});
+                    lines.push_back({(WORD)(tri.d1->x+200), (WORD)(tri.d1->y), (WORD)(tri.d3->x+200), (WORD)(tri.d3->y), 1, RGBA(255, 255, (l+1)/triangles.size())});
+                    lines.push_back({(WORD)(tri.d3->x+200), (WORD)(tri.d3->y), (WORD)(tri.d2->x+200), (WORD)(tri.d2->y), 1, RGBA(255, 255, (l+1)/triangles.size())});
                 }
-                drawLine(window, p1.x+200, p1.y, p2.x+200, p2.y, RGBA(255, 0, 0));
-                drawLine(window, p1.x+200, p1.y, p3.x+200, p3.y, RGBA(255, 0, 0));
-                drawLine(window, p3.x+200, p3.y, p2.x+200, p2.y, RGBA(255, 0, 0));
+                lines.push_back({(WORD)(p1.x+200), (WORD)(p1.y), (WORD)(p2.x+200), (WORD)(p2.y), 1, RGBA(255, 0, 0)});
+                lines.push_back({(WORD)(p1.x+200), (WORD)(p1.y), (WORD)(p3.x+200), (WORD)(p3.y), 1, RGBA(255, 0, 0)});
+                lines.push_back({(WORD)(p3.x+200), (WORD)(p3.y), (WORD)(p2.x+200), (WORD)(p2.y), 1, RGBA(255, 0, 0)});
+                renderRectangles(window, rectangles.data(), rectangles.size());
+                renderLines(window, lines.data(), lines.size());
+                renderCircles(window, circles.data(), circles.size());
+                renderFontChars(window, font, chars.data(), chars.size());
                 drawWindow(window);
+                lines.clear();
+                rectangles.clear();
+                circles.clear();
+                chars.clear();
                 getchar();
                 #endif
 
@@ -1549,6 +1579,11 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
         WORD fps = deltaTime != 0 ? 1000000/deltaTime : 1000;
         fpsTime += longToString(fps);
         // drawFontString(window, font, chars, fpsTime.c_str(), 50+selectedStrengthStringoffset, 10);
+
+        //TODO Braucht eigentlich noch ein lock um den Timeout aber es geht auch so...
+        tcpConnection.transferMutex.lock();
+        if(tcpConnection.transferSocket != INVALID_SOCKET) circles.push_back({10, 10, 8, 0, connectionColor()});
+        tcpConnection.transferMutex.unlock();
 
         renderRectangles(window, rectangles.data(), rectangles.size());
         renderLines(window, lines.data(), lines.size());

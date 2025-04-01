@@ -55,30 +55,26 @@ Verbesserungen:
 	4. Antenne
 	5. Andere Methode zur Positionsbestimmung
 	
-Neuste Ergebnisse:
-	- Antenne reduziert Rotationsfehler von 12dB zu 5dB
-	- Antenne verbessert das Signal IMMENS
-	- Kleine Räume sind nun schrecklich
-	- Große Räume sind bemerkenswert
+Basismessung mit 5 Messpunkten:
+	- Zeit zum Aufbauen: ca. 5min
+	- Genauigkeit: 3.039m on avg mit Standardabweichung von 1.928m
+		0.343m, 5.648m, 4.271m, 4.367m, 1.750m, 1.156m, 6.208m, 3.459m, 3.918m, 1.480m, 0.824m
+	- Performance: ca. 80ms
 
-TODOs:
-	- Cluster Bildung sollte Raum Layout berücksichtigen
-	- Tests, ob das System in Echzeit funktionieren könnte
-	- Methode um herauszufinden, wie gut die Positionsschätzung war (mit welchem Distanzfehler man rechnen kann)
-	- Tests in anderen Umgebungen
-	- Tests mit Leuten im Umfeld
-	- TCP
-	
-Arbeit:
-	- Zielsetzung und Idee
-	- Aktuelle Positionssysteme beschreiben
-	- Grundlagen des Systems (Signale, WLAN, ESP32)
-	- Erster Ansatz mit Grundbasis
-	- Verbesserungen
-		- Mehr Messpunkte (Optimale Positionierung)
-		- Mehr Messungen pro Messpunkt (Plots zeigen mit gemessener Streuung)
-		- Mehr Router
-		- Antenne (Idee wegen Rotationsproblem und besseres Signal)
-		- Andere Methode zur Positionsbestimmung
-	- Fazit
-	- Ausblick
+Basismessung mit 19 Messpunkten:
+	- Zeit zum Aufbauen: ca. 12min
+	- Genauigkeit: 2.028m on avg mit Standardabweichung von 0.776m
+		1.015m, 1.085m, 1.898m, 2.537m, 2.331m, 1.921m, 3.412m
+	- Performance: ca. 78ms
+
+Basismessung mit 59 Messpunkten:
+	- Zeit zum Aufbauen: ca. 30min
+	- Genauigekeit: 1.840m on avg mit Standardabweichung von 1.012m
+		3.431m, 0.436m, 1.396m, 1.852m, 3.677m, 0.747m, 1.777m, 2.319m, 1.783m, 0.981m
+	- Performance: ca. 77ms
+
+Daniel anschreiben wegen der Geschichte mit dem Kunden
+1. Problemstellung Kunde -> Vorstellung anderer Systeme -> Mein Idee -> Vorarbeit Triangulation -> Warum ist unser System besser/sinvoll für den Anwendungsfall
+2. Ziele und wie misst man den "Erfolg" -> Kostengünstig
+3. Grundlagen Signale und Wellen -> Antenne -> Wifi -> TCP/UDP
+4. Hardware -> Bibliotheken -> Software (mit Code)
