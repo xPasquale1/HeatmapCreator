@@ -84,6 +84,7 @@ Basismessung mit 59 Messpunkten und AVG:
 	- Genauigkeit: 2.409m on avg mit einer Standardabweichung von 1.078m
 		1.557m, 3.746m, 2.899m, 4.389m, 2.823m, 1.880m, 2.694m, 0.444m, 1.136m, 2.677m, 2.256m
 	- Performance: SEHR SCHWANKEND, ca. 19-28s
+	Wichtig, hier wurde ein anderes Handy benutzt für den Router unten rechts im Raum!
 
 Daniel anschreiben wegen der Geschichte mit dem Kunden
 1. Problemstellung Kunde -> Vorstellung anderer Systeme -> Mein Idee -> Vorarbeit Triangulation -> Warum ist unser System besser/sinvoll für den Anwendungsfall

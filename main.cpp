@@ -1452,6 +1452,16 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
                     drawFontStringCentered(window, font, chars, "ESP32 Position", pos.x, pos.y+10);
                     font.pixelSize = size;
                 }
+                for(BYTE i=0; i < routerPositionsCount; ++i){
+                    ScreenVec pos = layoutPosToWindowPos(routerPositions[i]);
+                    circles.push_back({pos.x, pos.y, 8, 0, RGBA(0, 192, 255)});
+                    std::string routerText = "Router ";
+                    routerText += longToString(i+1);
+                    WORD size = font.pixelSize;
+                    font.pixelSize = 20;
+                    drawFontStringCentered(window, font, chars, routerText.c_str(), pos.x, pos.y+10);
+                    font.pixelSize = size;
+                }
                 break;
             }
             case HEATMAPMODE:{
