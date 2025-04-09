@@ -459,6 +459,11 @@ ErrCode toggleDifferenceMode(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
+std::string getDifferenceMode()noexcept{
+    if(!differenceMode) return "Einzeln";
+    return "Zusammen";
+}
+
 static bool weightingQuality = true;
 ErrCode toggleWeightingQuality(void* buttonPtr)noexcept{
     Button* button = (Button*)buttonPtr;
@@ -466,6 +471,11 @@ ErrCode toggleWeightingQuality(void* buttonPtr)noexcept{
     if(weightingQuality) button->text = "Gewichtung an";
     else button->text = "Gewichtung aus";
     return SUCCESS;
+}
+
+std::string getWeigthQualityString()noexcept{
+    if(weightingQuality) return "Gewichtung an";
+    return "Gewichtung aus";
 }
 
 static BYTE showHeatmapIdx = 0;
@@ -668,6 +678,11 @@ ErrCode toggleSimulation(void* buttonPtr)noexcept{
     return SUCCESS;
 }
 
+std::string getSimulationString()noexcept{
+    if(simulateRSSI) return "Simulation an";
+    return "Simulation aus";
+}
+
 enum SEARCHMETHOD{
     MAXIMUM,
     CLUSTER,
@@ -689,6 +704,18 @@ ErrCode setSearchMethod(void* buttonPtr)noexcept{
             break;
     }
     return SUCCESS;
+}
+
+std::string getSearchMethodString()noexcept{
+    switch(searchMethod){
+        case SEARCHMETHOD::END:
+            return "INVALID";
+        case SEARCHMETHOD::MAXIMUM:
+            return "Max-Methode";
+        case SEARCHMETHOD::CLUSTER:
+            return "Cluster-Methode";
+    }
+    return "INVALID";
 }
 
 /// @brief Gibt eine Schätzung der Qualität einer Punktewolke der globalen Datenpunkte zurück
@@ -1035,7 +1062,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[6].pos = buttonPos;
             buttons[6].size = buttonSize;
             buttons[6].color = RGBA(120, 120, 120);
-            buttons[6].text = "Heatmap 0";
+            buttons[6].text = "Heatmap " + std::to_string((WORD)showHeatmapIdx);
             buttons[6].event = iterateHeatmaps;
             buttons[6].data = &buttons[6];
             buttons[6].textsize = 32;
@@ -1117,7 +1144,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
-            buttons[1].text = "Heatmap 0";
+            buttons[1].text = "Heatmap " + std::to_string((WORD)showHeatmapIdx);
             buttons[1].color = RGBA(120, 120, 120);
             buttons[1].event = iterateHeatmaps;
             buttons[1].data = &buttons[1];
@@ -1138,7 +1165,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttonPos.y += buttonSize.y+buttonSize.y*0.125;
             buttons[4].pos = buttonPos;
             buttons[4].size = buttonSize;
-            buttons[4].text = "Einzeln";
+            buttons[4].text = getDifferenceMode();
             buttons[4].color = RGBA(120, 120, 120);
             buttons[4].event = toggleDifferenceMode;
             buttons[4].data = &buttons[4];
@@ -1147,7 +1174,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[5].pos = buttonPos;
             buttons[5].size = buttonSize;
             buttons[5].color = RGBA(120, 120, 120);
-            buttons[5].text = "Gewichtung an";
+            buttons[5].text = getWeigthQualityString();
             buttons[5].event = toggleWeightingQuality;
             buttons[5].data = &buttons[5];
             buttons[5].textsize = 24;
@@ -1171,7 +1198,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[8].pos = buttonPos;
             buttons[8].size = buttonSize;
             buttons[8].color = RGBA(120, 120, 120);
-            buttons[8].text = "Max-Methode";
+            buttons[8].text = getSearchMethodString();
             buttons[8].event = setSearchMethod;
             buttons[8].data = &buttons[8];
             buttons[8].textsize = 23;
@@ -1179,7 +1206,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             buttons[9].pos = buttonPos;
             buttons[9].size = buttonSize;
             buttons[9].color = RGBA(120, 120, 120);
-            buttons[9].text = "Simulation aus";
+            buttons[9].text = getSimulationString();
             buttons[9].event = toggleSimulation;
             buttons[9].data = &buttons[9];
             buttons[9].textsize = 22;
@@ -1215,7 +1242,7 @@ ErrCode changeMode(void* buttonPtr)noexcept{
             ScreenVec buttonPos = {10, (WORD)(buttons[0].pos.y+buttons[0].size.y+buttonSize.y*0.125)};
             buttons[1].pos = buttonPos;
             buttons[1].size = buttonSize;
-            buttons[1].text = "Heatmap 0";
+            buttons[1].text = "Heatmap " + std::to_string((WORD)showHeatmapIdx);
             buttons[1].color = RGBA(120, 120, 120);
             buttons[1].event = iterateHeatmaps;
             buttons[1].data = &buttons[1];
@@ -1314,7 +1341,7 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
     SystemParametersInfoA(SPI_GETWORKAREA, 0, &workArea, 0);
     int winHeight = workArea.bottom-workArea.top-(GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) + GetSystemMetrics(SM_CXPADDEDBORDER));
     int winWidth = workArea.right-workArea.left;
-    if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, winWidth-(winHeight+210), 0, 1, "Fenster", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
+    if(ErrCheck(createWindow(window, hInstance, winHeight+200, winHeight, winWidth-(winHeight+210), 0, 1, "Heatmap Creator", mainWindowCallback), "Fenster erstellen") != SUCCESS) return -1;
     if(ErrCheck(init(), "Init OpenGL") != SUCCESS) return -1;
     
     if(ErrCheck(loadTTF(font, "fonts/OpenSans-Bold.ttf"), "Font laden") != SUCCESS) return -1;
