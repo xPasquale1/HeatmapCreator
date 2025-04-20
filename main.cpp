@@ -1583,9 +1583,11 @@ INT WinMain(HINSTANCE hInstance, HINSTANCE hPreviousInst, LPSTR lpszCmdLine, int
             int y = mouse.y;
             if(x >= 0){
                 ScreenVec point = windowPosToLayoutPos({mouse.x, mouse.y});
-                gx = (((float)point.x)*DATAPOINTRESOLUTIONX)/floorplan.width;
-                gy = (((float)point.y)*DATAPOINTRESOLUTIONY)/floorplan.height;
-                delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
+                if(point.x <= floorplan.width){
+                    gx = (((float)point.x)*DATAPOINTRESOLUTIONX)/floorplan.width;
+                    gy = (((float)point.y)*DATAPOINTRESOLUTIONY)/floorplan.height;
+                    delete (Datapoint*)removeHashmap(datapoints, coordinatesToKey(gx, gy));
+                }
             }
         }
         if(getButton(mouse, MOUSE_RMB)){

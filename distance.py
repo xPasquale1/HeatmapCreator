@@ -10,6 +10,6 @@ def calculate_stats(numbers):
 
     return avg, std_dev
 
-numbers = [1.557, 3.746, 2.899, 4.389, 2.823, 1.880, 2.694, 0.444, 1.136, 2.677, 2.256]
+numbers = [0.945, 1.634, 1.084, 3.145, 1.479, 2.642, 1.151, 4.027]
 avg, std_dev = calculate_stats(numbers)
 print(f"Durchschnitt: {avg:.3f}, Standardabweichung: {std_dev:.3f}")

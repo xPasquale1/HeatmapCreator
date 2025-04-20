@@ -61,7 +61,7 @@ Basismessung mit 5 Messpunkten:
 		0.343m, 5.648m, 4.271m, 4.367m, 1.750m, 1.156m, 6.208m, 3.459m, 3.918m, 1.480m, 0.824m
 	- Performance: ca. 80ms
 
-Basismessung mit 19 Messpunkten:
+Basismessung mit 20 Messpunkten:
 	- Zeit zum Aufbauen: ca. 12min
 	- Genauigkeit: 2.028m on avg mit Standardabweichung von 0.776m
 		1.015m, 1.085m, 1.898m, 2.537m, 2.331m, 1.921m, 3.412m
@@ -85,6 +85,12 @@ Basismessung mit 59 Messpunkten und AVG:
 		1.557m, 3.746m, 2.899m, 4.389m, 2.823m, 1.880m, 2.694m, 0.444m, 1.136m, 2.677m, 2.256m
 	- Performance: SEHR SCHWANKEND, ca. 19-28s
 	Wichtig, hier wurde ein anderes Handy benutzt für den Router unten rechts im Raum!
+
+Basismessung mit 20 Messpunkten, AVG und Antenne
+	- Zeit zum Aufbau: ca. 22min
+	- Genauigekeit: 2.013m on avg mit Standardabweichung von 1.055m
+		0.945m, 1.634m, 1.084m, 3.145m, 1.479m, 2.642m, 1.151m, 4.027m
+	- Performance: SEHR SCHWANKEND, ca. 19-28s
 
 Daniel anschreiben wegen der Geschichte mit dem Kunden
 1. Problemstellung Kunde -> Vorstellung anderer Systeme -> Mein Idee -> Vorarbeit Triangulation -> Warum ist unser System besser/sinvoll für den Anwendungsfall
