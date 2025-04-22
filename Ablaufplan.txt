@@ -91,6 +91,12 @@ Basismessung mit 20 Messpunkten, AVG und Antenne
 	- Genauigekeit: 2.013m on avg mit Standardabweichung von 1.055m
 		0.945m, 1.634m, 1.084m, 3.145m, 1.479m, 2.642m, 1.151m, 4.027m
 	- Performance: SEHR SCHWANKEND, ca. 19-28s
+	
+Antennenmessung des Stockwerks
+	- Zeit zum Aufbau: unbekannt
+	- Genauigekeit: 1.028m on avg mit Standardabweichung von 0.627m
+		1.160m, 0.696m, 0.357m, 0.299m, 0.338m, 2.224m, 2.930m, 1.537m, 0.676m, 1.711m, 1.286m
+	- Performance: SEHR SCHWANKEND, ca. 19-28s
 
 Daniel anschreiben wegen der Geschichte mit dem Kunden
 1. Problemstellung Kunde -> Vorstellung anderer Systeme -> Mein Idee -> Vorarbeit Triangulation -> Warum ist unser System besser/sinvoll für den Anwendungsfall
