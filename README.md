@@ -1,7 +1,7 @@
 # HeatmapCreator
 Dieses Programm nutzt WLAN-Daten, um einen Esp32 mit dem Program https://github.com/xPasquale1/DeviceLocatorEsp32 im Innenraum zu lokalisieren.
 Das Programm wurde in C++ mit der Win-API und OpenGL geschrieben. Das Programm speichert Signalstärken in Raum, um eine Position des Esp32 zu bestimmen.
-
+![alt text](https://github.com/xPasquale1/HeatmapCreator/blob/main/position_example.png "Positionbestimmung")
 
 ## Installation
 
